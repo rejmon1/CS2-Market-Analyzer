@@ -1,0 +1,7 @@
+# Główne zależności projektu CS2-Market-Analyzer
+# Każdy serwis ma własny requirements.txt — ten plik pełni rolę zbiorczego placeholdera.
+
+requests
+aiohttp
+psycopg2-binary
+discord.py
