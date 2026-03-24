@@ -36,6 +36,7 @@ services:
 
   db:
     image: postgres:16
+    container_name: cs2-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-cs2user}
