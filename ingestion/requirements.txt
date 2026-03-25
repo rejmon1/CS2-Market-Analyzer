@@ -1,0 +1,4 @@
+# Zależności modułu ingestion
+requests
+aiohttp
+psycopg2-binary

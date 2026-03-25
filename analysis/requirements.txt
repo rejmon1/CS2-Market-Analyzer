@@ -1,0 +1,2 @@
+# Zależności modułu analysis
+psycopg2-binary
