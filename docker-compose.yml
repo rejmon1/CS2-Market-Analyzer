@@ -1,24 +1,31 @@
 services:
   ingestion:
-    build: ./ingestion
+    build:
+      context: .
+      dockerfile: ingestion/Dockerfile
     restart: unless-stopped
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-cs2user}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-cs2db}
-      # Dodaj tu klucze API rynków, np.:
-      # STEAM_API_KEY=${STEAM_API_KEY}
-      # SKINPORT_API_KEY=${SKINPORT_API_KEY}
+      - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-300}
+      - SKINPORT_CLIENT_ID=${SKINPORT_CLIENT_ID:-}
+      - SKINPORT_CLIENT_SECRET=${SKINPORT_CLIENT_SECRET:-}
+      - CSFLOAT_API_KEY=${CSFLOAT_API_KEY:-}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     networks:
       - cs2net
 
   analysis:
-    build: ./analysis
+    build:
+      context: .
+      dockerfile: analysis/Dockerfile
     restart: unless-stopped
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-cs2user}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-cs2db}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     networks:
       - cs2net
 
@@ -30,7 +37,8 @@ services:
       # DISCORD_TOKEN=${DISCORD_TOKEN}
       # DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     networks:
       - cs2net
 
@@ -45,6 +53,11 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cs2user} -d ${POSTGRES_DB:-cs2db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     networks:
       - cs2net
 

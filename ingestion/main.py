@@ -1,11 +1,21 @@
 """
-Punkt wejścia modułu ingestion.
-TODO: Implementacja cyklicznego pobierania danych z API rynków CS2.
+Punkt wejścia serwisu ingestion.
+Uruchamia asynchroniczną pętlę schedulera pobierającą ceny z rynków CS2.
 """
+import asyncio
+
+import config
+from shared.logger import get_logger
+
+logger = get_logger("ingestion")
 
 
-def main():
-    print("Ingestion service started (placeholder)")
+def main() -> None:
+    from scheduler import run
+
+    poll_interval = config.get_poll_interval()
+    logger.info("Ingestion service starting (poll_interval=%ds)", poll_interval)
+    asyncio.run(run(poll_interval))
 
 
 if __name__ == "__main__":
