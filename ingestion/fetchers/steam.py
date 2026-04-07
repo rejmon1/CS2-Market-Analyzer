@@ -46,7 +46,8 @@ class SteamFetcher(BaseFetcher):
 
                 lowest_price = _parse_steam_price(data.get("lowest_price", ""))
                 if lowest_price is None:
-                    logger.warning("[steam] Cannot parse price for %r: %s", item, data)
+                    # success=True ale brak lowest_price = item istnieje, ale nie ma aktywnych listingów
+                    logger.debug("[steam] No active listings for %r", item)
                     continue
 
                 volume_str = data.get("volume", "0").replace(",", "")

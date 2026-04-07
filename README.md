@@ -98,20 +98,34 @@ Poll cycle done: 48 price records inserted in 63.2s — sleeping 300s
 ```bash
 # Wejdź do kontenera PostgreSQL
 docker compose exec db psql -U cs2user -d cs2db
+```
 
--- Lista śledzonych itemów
-SELECT market_hash_name, is_active, created_at FROM items ORDER BY id LIMIT 10;
+```sql
+-- Ile masz itemów i czy są aktywne
+SELECT market_hash_name, is_active, created_at FROM items ORDER BY id;
 
--- Ostatnie pobrane ceny
+-- Ostatnie zebrane ceny (najnowsze najpierw)
 SELECT i.market_hash_name, p.market, p.lowest_price, p.quantity, p.fetched_at
 FROM prices p
 JOIN items i ON i.id = p.item_id
 ORDER BY p.fetched_at DESC
-LIMIT 20;
+LIMIT 30;
+
+-- Ile rekordów zebrałeś z każdego rynku
+SELECT market, COUNT(*) AS records FROM prices GROUP BY market;
+
+-- Ostatnia cena per item per rynek (bez duplikatów)
+SELECT DISTINCT ON (i.market_hash_name, p.market)
+    i.market_hash_name, p.market, p.lowest_price, p.fetched_at
+FROM prices p
+JOIN items i ON i.id = p.item_id
+ORDER BY i.market_hash_name, p.market, p.fetched_at DESC;
 
 -- Wyjście z psql
 \q
 ```
+
+> **Uwaga o czasie cyklu Steam:** Steam wymaga 1,2 s przerwy między zapytaniami (publiczne API). Przy 50 itemach jeden cykl trwa ~60 s, a następnie serwis śpi `POLL_INTERVAL_SECONDS` (domyślnie 300 s). Nowy cykl startuje co ~6 minut, nie co minutę.
 
 **6. Zatrzymaj środowisko**
 
