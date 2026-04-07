@@ -1,4 +1,4 @@
 # Zależności modułu ingestion
-requests
-aiohttp
-psycopg2-binary
+aiohttp==3.13.3
+brotli==1.2.0
+psycopg2-binary==2.9.9
