@@ -79,3 +79,29 @@ CREATE TABLE IF NOT EXISTS alerts (
 
 -- Indeks częściowy — discord_bot odpytuje tylko niesłane alerty
 CREATE INDEX IF NOT EXISTS idx_alerts_unsent ON alerts(created_at ASC) WHERE sent = FALSE;
+
+
+-- -----------------------------------------------------------------------------
+-- TABELA: market_fees
+-- Prowizje pobierane przez każdy rynek.
+-- seller_fee — ułamek ceny potrącany od sprzedającego (np. 0.15 = 15%)
+-- buyer_fee  — ułamek ceny doliczany kupującemu ponad cenę listingu (0 dla wszystkich
+--              obsługiwanych rynków — cena z API jest już ceną brutto kupującego)
+-- Zarządzane ręcznie / przez admina; nie nadpisywane przy restarcie (DO NOTHING).
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS market_fees (
+    market      TEXT          PRIMARY KEY
+                                CHECK (market IN ('steam', 'skinport', 'csfloat')),
+    seller_fee  NUMERIC(6, 4) NOT NULL DEFAULT 0
+                                CHECK (seller_fee >= 0 AND seller_fee < 1),
+    buyer_fee   NUMERIC(6, 4) NOT NULL DEFAULT 0
+                                CHECK (buyer_fee  >= 0 AND buyer_fee  < 1),
+    updated_at  TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
+-- Domyślne prowizje — wstawiane tylko przy pierwszym uruchomieniu
+INSERT INTO market_fees (market, seller_fee, buyer_fee) VALUES
+    ('steam',    0.1500, 0.0000),   -- 13% Steam + 2% Valve
+    ('skinport', 0.1200, 0.0000),
+    ('csfloat',  0.0200, 0.0000)
+ON CONFLICT (market) DO NOTHING;

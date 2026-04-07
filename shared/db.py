@@ -14,7 +14,7 @@ from typing import Any
 import psycopg2
 import psycopg2.extras
 
-from shared.models import Alert, Item, PriceRecord
+from shared.models import Alert, Item, MarketFee, PriceRecord
 
 
 def get_connection():
@@ -209,3 +209,59 @@ def mark_alerts_sent(conn, alert_ids: list[int]) -> None:
             (alert_ids,),
         )
     conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# market_fees
+# ---------------------------------------------------------------------------
+
+def get_market_fees(conn) -> dict[str, MarketFee]:
+    """
+    Zwraca prowizje wszystkich rynków jako słownik {market: MarketFee}.
+    Wartości pochodzą z tabeli market_fees (domyślne seed z init.sql).
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT market, seller_fee, buyer_fee FROM market_fees")
+        return {
+            row["market"]: MarketFee(
+                market=row["market"],
+                seller_fee=float(row["seller_fee"]),
+                buyer_fee=float(row["buyer_fee"]),
+            )
+            for row in cur.fetchall()
+        }
+
+
+def get_all_latest_prices(conn) -> dict[str, list[dict[str, Any]]]:
+    """
+    Zwraca ostatni odczyt ceny z każdego rynku dla wszystkich aktywnych itemów.
+    Wynik: { market_hash_name: [ {market, lowest_price, quantity, fetched_at}, ... ] }
+    Używane przez silnik analityczny.
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT DISTINCT ON (i.market_hash_name, p.market)
+                   i.market_hash_name,
+                   p.market,
+                   p.lowest_price,
+                   p.quantity,
+                   p.fetched_at
+            FROM prices p
+            JOIN items i ON i.id = p.item_id
+            WHERE i.is_active = TRUE
+            ORDER BY i.market_hash_name, p.market, p.fetched_at DESC
+            """
+        )
+        result: dict[str, list[dict[str, Any]]] = {}
+        for row in cur.fetchall():
+            name = row["market_hash_name"]
+            result.setdefault(name, []).append(
+                {
+                    "market": row["market"],
+                    "lowest_price": float(row["lowest_price"]),
+                    "quantity": row["quantity"],
+                    "fetched_at": row["fetched_at"],
+                }
+            )
+        return result

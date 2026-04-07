@@ -23,6 +23,8 @@ services:
     restart: unless-stopped
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-cs2user}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-cs2db}
+      - ANALYSIS_INTERVAL_SECONDS=${ANALYSIS_INTERVAL_SECONDS:-60}
+      - ARBITRAGE_MIN_SPREAD_PCT=${ARBITRAGE_MIN_SPREAD_PCT:-5.0}
     depends_on:
       db:
         condition: service_healthy
