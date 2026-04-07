@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS market_fees (
 
 -- Domyślne prowizje — wstawiane tylko przy pierwszym uruchomieniu
 INSERT INTO market_fees (market, seller_fee, buyer_fee) VALUES
-    ('steam',    0.1500, 0.0000),   -- 13% Steam + 2% Valve
+    ('steam',    0.1500, 0.0000),   -- 15% łącznie (13% Steam + 2% Valve)
     ('skinport', 0.1200, 0.0000),
     ('csfloat',  0.0200, 0.0000)
 ON CONFLICT (market) DO NOTHING;
