@@ -26,15 +26,23 @@ async def fetch_steam_inventory(session: aiohttp.ClientSession, steam_id64: str)
     Zwraca Listę przedmiotów, pustą listę (jeśli prywatny/pusty) lub None (błąd API).
     """
     url = config.get_steam_inventory_url(steam_id64)
+    
+    # Steam często zwraca 400/403 dla zapytań bez User-Agent
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": f"https://steamcommunity.com/profiles/{steam_id64}/inventory/",
+        "Accept": "application/json"
+    }
+
     logger.info("Fetching inventory for %s from Steam...", steam_id64)
 
     try:
-        async with session.get(url, timeout=15) as resp:
+        async with session.get(url, headers=headers, timeout=15) as resp:
             if resp.status == 429:
                 logger.warning("Steam Rate Limit (429) for %s", steam_id64)
                 return None
             if resp.status != 200:
-                logger.error("Steam API error %d for %s", resp.status, steam_id64)
+                logger.error("Steam API error %d for %s. URL: %s", resp.status, steam_id64, url)
                 return None
             data = await resp.json()
     except Exception as e:
