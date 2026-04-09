@@ -33,6 +33,15 @@ class Item:
 
 
 @dataclass
+class MarketFee:
+    """Prowizje jednego rynku — pobierane z tabeli market_fees."""
+
+    market: str
+    seller_fee: float   # ułamek ceny potrącany od sprzedającego (0.15 = 15%)
+    buyer_fee: float    # ułamek doliczany kupującemu ponad cenę listingu (zwykle 0)
+
+
+@dataclass
 class Alert:
     """Alert arbitrażowy lub anomalia wolumenu gotowa do wysłania przez bota."""
 
