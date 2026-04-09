@@ -2,17 +2,8 @@
 Punkt wejścia modułu discord_bot.
 
 Funkcje:
-  - Komendy tekstowe (prefix `!`) do zarządzania listą śledzonych itemów i przeglądania danych.
-  - Pętla w tle: co ALERT_POLL_INTERVAL_SECONDS sprawdza niesłane alerty i wysyła je
-    na kanał DISCORD_CHANNEL_ID.
-
-Komendy:
-  !add_item <market_hash_name>   — dodaje item do śledzenia
-  !remove_item <market_hash_name>— deaktywuje śledzenie (soft-delete)
-  !list_items                    — wyświetla aktywnie śledzone itemy
-  !price <market_hash_name>      — ostatnie ceny z każdego rynku
-  !alerts                        — niesłane alerty arbitrażowe
-  !clear_alerts                  — oznacza wszystkie alerty jako przeczytane
+  - Komendy hybrydowe (Slash i Prefix `!`) do zarządzania ekwipunkiem i śledzenia cen.
+  - Pętla w tle: wysyła alerty arbitrażowe na kanał i alerty ekwipunku w DM.
 """
 from __future__ import annotations
 
@@ -52,7 +43,8 @@ def _fmt_price_row(row: dict) -> str:
 def _fmt_alert(alert: dict) -> str:
     at = alert["alert_type"]
     d = alert["details"]
-    name = alert["market_hash_name"]
+    # Alerty globalne (np. portfel) nie mają przypisanego konkretnego przedmiotu
+    name = alert.get("market_hash_name") or "Ekwipunek"
 
     if at == "arbitrage":
         spread = d.get("spread_pct", "?")
@@ -72,7 +64,7 @@ def _fmt_alert(alert: dict) -> str:
         diff_p = d.get("diff_pct", 0)
         emoji = "📈" if diff_p > 0 else "📉"
         return (
-            f"{emoji} **Zmiana wartości ekwipunku!**\n"
+            f"{emoji} **Zmiana wartości Twojego ekwipunku!**\n"
             f"   Poprzednio: **${old_v:.2f}**  →  Obecnie: **${new_v:.2f}**\n"
             f"   Zmiana: **{diff_p:+.2f}%**"
         )
@@ -85,14 +77,14 @@ def _fmt_alert(alert: dict) -> str:
 
 @bot.hybrid_group(name="set", invoke_without_command=True)
 async def set_group(ctx: commands.Context):
-    """Grupa komend !set. Użycie: !set inventory <link_lub_id>"""
-    await ctx.send("❓ Użycie: `!set inventory <link do profilu lub SteamID64>` (lub /set inventory)")
+    """Grupa komend /set. Użycie: /set inventory <link_lub_id>"""
+    await ctx.send("❓ Użycie: `/set inventory <link do profilu lub SteamID64>`")
 
 
 @set_group.command(name="inventory")
 async def set_inventory(ctx: commands.Context, *, steam_url_or_id: str):
     """Ustawia SteamID i zleca pobranie ekwipunku."""
-    from shared.steam import resolve_steam_id # Importujemy ze wspólnego modułu
+    from shared.steam import resolve_steam_id
     
     steam_id64 = resolve_steam_id(steam_url_or_id)
     if not steam_id64:
@@ -102,20 +94,19 @@ async def set_inventory(ctx: commands.Context, *, steam_url_or_id: str):
     try:
         conn = db.get_connection()
         try:
-            # Zapisujemy w bazie z flagą do aktualizacji przez serwis inventory
             db.upsert_user_profile(conn, str(ctx.author.id), steam_id64, pending_update=True)
-            await ctx.send(f"✅ Ustawiono SteamID: `{steam_id64}`. Ekwipunek zostanie pobrany w ciągu kilku sekund.")
+            await ctx.send(f"✅ Ustawiono SteamID: `{steam_id64}`. Ekwipunek zostanie pobrany wkrótce.")
         finally:
             conn.close()
     except Exception as e:
         logger.exception("Błąd przy zapisie profilu: %s", e)
-        await ctx.send(f"❌ Wystąpił błąd bazy danych: {e}")
+        await ctx.send(f"❌ Wystąpił błąd bazy danych.")
 
 
 @bot.hybrid_group(name="inv", invoke_without_command=True)
 async def inv_group(ctx: commands.Context):
-    """Grupa komend !inv. Użycie: !inv info lub !inv update"""
-    await ctx.send("❓ Użycie: `!inv info` lub `!inv update` (lub /inv info)")
+    """Grupa komend /inv. Użycie: /inv info lub /inv update"""
+    await ctx.send("❓ Użycie: `/inv info` lub `/inv update`")
 
 
 @inv_group.command(name="info")
@@ -140,7 +131,6 @@ async def inv_info(ctx: commands.Context):
             for item in items:
                 name = item["market_hash_name"]
                 amount = item["amount"]
-                # Pobierz ceny (używamy Steam jako głównego źródła dla ekwipunku)
                 prices = db.get_latest_prices(conn, name)
                 steam_price = next((p["lowest_price"] for p in prices if p["market"] == "steam"), None)
 
@@ -154,7 +144,6 @@ async def inv_info(ctx: commands.Context):
             lines.append(f"\n💵 **Suma całkowita (Steam): ${total_value:.2f}**")
             lines.append(f"🕒 Ostatnia aktualizacja: {profile['last_updated'].strftime('%Y-%m-%d %H:%M:%S')} UTC")
 
-            # Podział na chunki
             chunk = ""
             for line in lines:
                 if len(chunk) + len(line) + 2 > 1990:
@@ -169,7 +158,7 @@ async def inv_info(ctx: commands.Context):
             conn.close()
     except Exception as e:
         logger.exception("Błąd przy inv_info: %s", e)
-        await ctx.send(f"❌ Wystąpił błąd: {e}")
+        await ctx.send(f"❌ Wystąpił błąd.")
 
 
 @inv_group.command(name="update")
@@ -184,7 +173,6 @@ async def inv_update(ctx: commands.Context):
             await ctx.send("❌ Najpierw ustaw ekwipunek: `/set inventory <link>`.")
             return
 
-        # Wywołaj ten sam mechanizm co !set inventory
         await set_inventory(ctx, steam_url_or_id=profile["steam_id64"])
     except Exception as e:
         await ctx.send(f"❌ Błąd: {e}")
@@ -201,15 +189,14 @@ async def add_item(ctx: commands.Context, *, market_hash_name: str):
             conn.close()
     except Exception as exc:
         logger.exception("Błąd przy add_item: %s", exc)
-        await ctx.send(f"❌ Błąd: {exc}")
+        await ctx.send(f"❌ Błąd.")
         return
     await ctx.send(f"✅ Item **{market_hash_name}** dodany do śledzenia.")
-    logger.info("add_item: %r przez %s", market_hash_name, ctx.author)
 
 
 @bot.hybrid_command(name="remove_item")
 async def remove_item(ctx: commands.Context, *, market_hash_name: str):
-    """Deaktywuje śledzenie itemu (soft-delete, historia cen zachowana)."""
+    """Deaktywuje śledzenie itemu (soft-delete)."""
     try:
         conn = db.get_connection()
         try:
@@ -218,13 +205,12 @@ async def remove_item(ctx: commands.Context, *, market_hash_name: str):
             conn.close()
     except Exception as exc:
         logger.exception("Błąd przy remove_item: %s", exc)
-        await ctx.send(f"❌ Błąd: {exc}")
+        await ctx.send(f"❌ Błąd.")
         return
     if found:
         await ctx.send(f"🗑️ Item **{market_hash_name}** deaktywowany.")
     else:
-        await ctx.send(f"⚠️ Nie znaleziono itemu **{market_hash_name}** w bazie.")
-    logger.info("remove_item: %r przez %s (found=%s)", market_hash_name, ctx.author, found)
+        await ctx.send(f"⚠️ Nie znaleziono itemu w bazie.")
 
 
 @bot.hybrid_command(name="list_items")
@@ -238,7 +224,7 @@ async def list_items(ctx: commands.Context):
             conn.close()
     except Exception as exc:
         logger.exception("Błąd przy list_items: %s", exc)
-        await ctx.send(f"❌ Błąd: {exc}")
+        await ctx.send(f"❌ Błąd.")
         return
 
     if not items:
@@ -249,7 +235,6 @@ async def list_items(ctx: commands.Context):
     for name in items:
         lines.append(f"  • {name}")
 
-    # Discord ma limit 2000 znaków — podziel na chunki
     chunk = ""
     for line in lines:
         if len(chunk) + len(line) + 1 > 1990:
@@ -263,7 +248,7 @@ async def list_items(ctx: commands.Context):
 
 @bot.hybrid_command(name="price")
 async def price(ctx: commands.Context, *, market_hash_name: str):
-    """Pokazuje ostatnie ceny z każdego rynku dla podanego itemu (bez odpytywania API)."""
+    """Pokazuje ostatnie ceny z każdego rynku dla podanego itemu."""
     try:
         conn = db.get_connection()
         try:
@@ -272,11 +257,11 @@ async def price(ctx: commands.Context, *, market_hash_name: str):
             conn.close()
     except Exception as exc:
         logger.exception("Błąd przy price: %s", exc)
-        await ctx.send(f"❌ Błąd: {exc}")
+        await ctx.send(f"❌ Błąd.")
         return
 
     if not rows:
-        await ctx.send(f"⚠️ Brak danych cenowych dla **{market_hash_name}**.")
+        await ctx.send(f"⚠️ Brak danych cenowych.")
         return
 
     lines = [f"💰 **{market_hash_name}**"]
@@ -287,7 +272,7 @@ async def price(ctx: commands.Context, *, market_hash_name: str):
 
 @bot.hybrid_command(name="alerts")
 async def alerts_cmd(ctx: commands.Context):
-    """Wyświetla nowe (niesłane) alerty arbitrażowe z bazy danych."""
+    """Wyświetla nowe (niesłane) alerty arbitrażowe."""
     try:
         conn = db.get_connection()
         try:
@@ -296,7 +281,7 @@ async def alerts_cmd(ctx: commands.Context):
             conn.close()
     except Exception as exc:
         logger.exception("Błąd przy alerts: %s", exc)
-        await ctx.send(f"❌ Błąd: {exc}")
+        await ctx.send(f"❌ Błąd.")
         return
 
     if not unsent:
@@ -332,23 +317,22 @@ async def clear_alerts(ctx: commands.Context):
             conn.close()
     except Exception as exc:
         logger.exception("Błąd przy clear_alerts: %s", exc)
-        await ctx.send(f"❌ Błąd: {exc}")
+        await ctx.send(f"❌ Błąd.")
         return
 
     if ids:
         await ctx.send(f"🧹 Oznaczono {len(ids)} alertów jako przeczytane.")
     else:
         await ctx.send("✅ Nie było niesłanych alertów.")
-    logger.info("clear_alerts: oznaczono %d alertów przez %s", len(ids), ctx.author)
 
 
 # ---------------------------------------------------------------------------
-# Pętla w tle — automatyczne wysyłanie nowych alertów na kanał
+# Pętla w tle — automatyczne wysyłanie nowych alertów
 # ---------------------------------------------------------------------------
 
 @tasks.loop(seconds=config.get_alert_poll_interval())
 async def alert_sender():
-    """Co ALERT_POLL_INTERVAL_SECONDS sprawdza niesłane alerty i wysyła je (DM lub kanał)."""
+    """Wysyła niesłane alerty (DM dla portfela, kanał dla arbitrażu)."""
     channel_id = config.get_discord_channel_id()
     channel = bot.get_channel(channel_id) if channel_id else None
 
@@ -364,25 +348,19 @@ async def alert_sender():
                 msg_content = _fmt_alert(alert)
                 
                 if alert["alert_type"] == "inventory_value":
-                    # PRYWATNY ALERT -> DM
                     d_id = alert["details"].get("discord_id")
                     if d_id:
                         try:
                             user = await bot.fetch_user(int(d_id))
                             if user:
                                 await user.send(msg_content)
-                                logger.info("Wysłano DM do %s o zmianie wartości ekwipunku", d_id)
                         except Exception as e:
                             logger.warning("Błąd wysyłki DM do %s: %s", d_id, e)
                 else:
-                    # OGÓLNY ALERT -> KANAŁ
                     if channel:
                         await channel.send(msg_content)
-                    else:
-                        logger.warning("Brak kanału publicznego do wysłania alertu %s", alert["id"])
 
             db.mark_alerts_sent(conn, ids)
-            logger.info("alert_sender: przetworzono %d alertów", len(ids))
         finally:
             conn.close()
     except Exception as exc:
@@ -400,28 +378,23 @@ async def before_alert_sender():
 
 @bot.event
 async def on_ready():
-    logger.info("Bot zalogowany jako %s (id: %s)", bot.user, bot.user.id)
-    
-    # Synchronizacja komend Slash
+    logger.info("Bot zalogowany jako %s", bot.user)
     try:
         synced = await bot.tree.sync()
         logger.info("Zsynchronizowano %d komend Slash", len(synced))
     except Exception as e:
-        logger.error("Błąd synchronizacji komend Slash: %s", e)
+        logger.error("Błąd synchronizacji: %s", e)
 
-    logger.info("Prefiks komend: !")
-    # ... reszta bez zmian
+    if not alert_sender.is_running():
+        alert_sender.start()
 
 
 @bot.event
 async def on_command_error(ctx: commands.Context, error):
-    if isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f"⚠️ Brakujący argument. Użycie: `!{ctx.command.name} <market_hash_name>`")
-    elif isinstance(error, commands.CommandNotFound):
-        pass  # ignoruj nieznane komendy
-    else:
-        logger.error("Błąd komendy %s: %s", ctx.command, error)
-        await ctx.send(f"❌ Nieoczekiwany błąd: {error}")
+    if isinstance(error, commands.CommandNotFound):
+        return
+    logger.error("Błąd komendy %s: %s", ctx.command, error)
+    await ctx.send(f"❌ Wystąpił błąd podczas wykonywania komendy.")
 
 
 # ---------------------------------------------------------------------------
@@ -432,11 +405,7 @@ def main() -> None:
     try:
         token = config.get_discord_token()
     except RuntimeError as exc:
-        logger.error("%s — bot nie zostanie uruchomiony", exc)
-        logger.info(
-            "Ustaw DISCORD_TOKEN w pliku .env i zrestartuj kontener discord_bot. "
-            "Instrukcja: https://discord.com/developers/applications"
-        )
+        logger.error("%s", exc)
         sys.exit(1)
 
     logger.info("Discord bot service starting…")
@@ -445,4 +414,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

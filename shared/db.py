@@ -288,6 +288,24 @@ def upsert_user_profile(conn, discord_id: str, steam_id64: str, pending_update: 
     conn.commit()
 
 
+def get_user_profile(conn, discord_id: str) -> dict[str, Any] | None:
+    """Pobiera dane profilu użytkownika."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT discord_id, steam_id64, last_updated FROM user_profiles WHERE discord_id = %s",
+            (discord_id,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def get_all_user_profiles(conn) -> list[dict[str, Any]]:
+    """Zwraca wszystkie profile użytkowników do analizy trendów."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT discord_id, steam_id64, last_updated FROM user_profiles")
+        return [dict(row) for row in cur.fetchall()]
+
+
 def get_pending_updates(conn) -> list[dict[str, Any]]:
     """Zwraca profile, które oczekują na aktualizację ekwipunku."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
