@@ -23,30 +23,33 @@ logger = get_logger("inventory")
 async def fetch_steam_inventory(session: aiohttp.ClientSession, steam_id64: str) -> Optional[List[Dict[str, Any]]]:
     """
     Pobiera i parsuje ekwipunek CS2 ze Steama.
-    Zwraca Listę przedmiotów, pustą listę (jeśli prywatny/pusty) lub None (błąd API).
     """
     url = config.get_steam_inventory_url(steam_id64)
     
-    # Steam często zwraca 400/403 dla zapytań bez User-Agent
+    # Steam wymaga nagłówków i konkretnych parametrów
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Referer": f"https://steamcommunity.com/profiles/{steam_id64}/inventory/",
         "Accept": "application/json"
     }
+    params = {
+        "l": "english",
+        "count": 1000 # Bezpieczna wartość
+    }
 
-    logger.info("Fetching inventory for %s from Steam...", steam_id64)
+    logger.info("Pobieranie ekwipunku dla SteamID64: %s (URL: %s)", steam_id64, url)
 
     try:
-        async with session.get(url, headers=headers, timeout=15) as resp:
+        async with session.get(url, headers=headers, params=params, timeout=15) as resp:
             if resp.status == 429:
-                logger.warning("Steam Rate Limit (429) for %s", steam_id64)
+                logger.warning("Steam Rate Limit (429) dla %s", steam_id64)
                 return None
             if resp.status != 200:
-                logger.error("Steam API error %d for %s. URL: %s", resp.status, steam_id64, url)
+                logger.error("Błąd Steam API %d dla ID %s. Sprawdź czy profil jest publiczny.", resp.status, steam_id64)
                 return None
+            
             data = await resp.json()
     except Exception as e:
-        logger.error("Failed to fetch from Steam for %s: %s", steam_id64, e)
+        logger.error("Błąd połączenia ze Steam dla %s: %s", steam_id64, e)
         return None
 
     if not data or not data.get("assets"):

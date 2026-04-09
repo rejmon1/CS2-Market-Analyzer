@@ -10,6 +10,6 @@ def get_poll_interval() -> int:
 
 
 def get_steam_inventory_url(steam_id64: str) -> str:
-    """Zwraca publiczny URL do JSON-a ekwipunku Steam dla CS2 (AppID: 730, ContextID: 2)."""
-    # Zmniejszamy count do 2000, co jest bezpieczniejszą wartością niż 5000
-    return f"https://steamcommunity.com/inventory/{steam_id64}/730/2?l=english&count=2000"
+    """Zwraca publiczny URL do JSON-a ekwipunku Steam dla CS2."""
+    # Używamy najprostszego formatu, aby uniknąć błędu 400
+    return f"https://steamcommunity.com/inventory/{steam_id64}/730/2"
