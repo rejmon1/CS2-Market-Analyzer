@@ -20,22 +20,29 @@ from shared.logger import get_logger
 logger = get_logger("inventory")
 
 
-async def fetch_steam_inventory(session: aiohttp.ClientSession, steam_id64: str) -> List[Dict[str, Any]]:
-    """Pobiera i parsuje ekwipunek CS2 ze Steama."""
+async def fetch_steam_inventory(session: aiohttp.ClientSession, steam_id64: str) -> Optional[List[Dict[str, Any]]]:
+    """
+    Pobiera i parsuje ekwipunek CS2 ze Steama.
+    Zwraca Listę przedmiotów, pustą listę (jeśli prywatny/pusty) lub None (błąd API).
+    """
     url = config.get_steam_inventory_url(steam_id64)
     logger.info("Fetching inventory for %s from Steam...", steam_id64)
 
     try:
         async with session.get(url, timeout=15) as resp:
+            if resp.status == 429:
+                logger.warning("Steam Rate Limit (429) for %s", steam_id64)
+                return None
             if resp.status != 200:
                 logger.error("Steam API error %d for %s", resp.status, steam_id64)
-                return []
+                return None
             data = await resp.json()
     except Exception as e:
-        logger.error("Failed to fetch from Steam: %s", e)
-        return []
+        logger.error("Failed to fetch from Steam for %s: %s", steam_id64, e)
+        return None
 
     if not data or not data.get("assets"):
+        # To zazwyczaj oznacza prywatny ekwipunek lub brak przedmiotów w CS2
         logger.info("Inventory for %s is empty or private", steam_id64)
         return []
 
@@ -72,18 +79,26 @@ async def process_pending_updates(conn):
             discord_id = p["discord_id"]
             steam_id64 = p["steam_id64"]
             
-            items = await fetch_steam_inventory(session, steam_id64)
-            
-            # Nawet jeśli pusty, odznaczamy pending_update (aby nie zapętlić błędu)
-            db.update_user_inventory(conn, discord_id, items)
-            
-            if items:
-                # Rejestracja w globalnym systemie
-                unique_names = list(set(i["market_hash_name"] for i in items))
-                db.seed_items(conn, unique_names)
-                logger.info("Updated inventory for %s (%d items)", discord_id, len(items))
-            else:
-                logger.warning("Empty or private inventory for %s", discord_id)
+            try:
+                items = await fetch_steam_inventory(session, steam_id64)
+                
+                # Jeśli items to None, oznacza to błąd krytyczny/rate limit -> pomijamy odznaczanie
+                if items is None:
+                    logger.warning("Skipping update for %s due to API error (will retry)", discord_id)
+                    continue
+
+                # Zapisujemy stan (nawet jeśli lista przedmiotów jest pusta - np. wyczyścili ekwipunek)
+                db.update_user_inventory(conn, discord_id, items)
+                
+                if items:
+                    # Rejestracja w globalnym systemie (dodawanie do items)
+                    unique_names = list(set(i["market_hash_name"] for i in items))
+                    db.seed_items(conn, unique_names)
+                    logger.info("✅ Updated inventory for %s (%d items)", discord_id, len(items))
+                else:
+                    logger.info("Inventory for %s is empty or private", discord_id)
+            except Exception as e:
+                logger.error("Error processing update for %s: %s", discord_id, e)
 
 
 async def main_loop():

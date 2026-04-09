@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS prices (
 
     item_id       INTEGER     NOT NULL REFERENCES items(id) ON DELETE CASCADE,
     -- Obsługiwane rynki: 'steam' | 'skinport' | 'csfloat'
-    market        TEXT        NOT NULL CHECK (market IN ('steam', 'skinport', 'csfloat')),
+    market        TEXT        NOT NULL CHECK (market IN ('steam', 'steam_volume', 'skinport', 'csfloat')),
 
     -- Najniższa dostępna cena w USD
     lowest_price  NUMERIC(12, 5) NOT NULL,
@@ -48,7 +48,9 @@ CREATE TABLE IF NOT EXISTS prices (
     -- Surowa odpowiedź API — ułatwia debugowanie i ponowny parsing
     raw_data      JSONB,
 
-    fetched_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    fetched_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    UNIQUE (item_id, market, fetched_at)
 );
 
 CREATE INDEX IF NOT EXISTS idx_prices_item_market  ON prices(item_id, market);
