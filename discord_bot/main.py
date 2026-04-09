@@ -92,7 +92,7 @@ async def set_group(ctx: commands.Context):
 @set_group.command(name="inventory")
 async def set_inventory(ctx: commands.Context, *, steam_url_or_id: str):
     """Ustawia SteamID i zleca pobranie ekwipunku."""
-    from inventory.main import resolve_steam_id # Importujemy tylko logikę pomocniczą
+    from shared.steam import resolve_steam_id # Importujemy ze wspólnego modułu
     
     steam_id64 = resolve_steam_id(steam_url_or_id)
     if not steam_id64:

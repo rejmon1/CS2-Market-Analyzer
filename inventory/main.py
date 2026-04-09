@@ -13,26 +13,11 @@ import aiohttp
 from typing import Optional, List, Dict, Any
 
 from inventory import config
+from shared.steam import resolve_steam_id
 from shared import db
 from shared.logger import get_logger
 
 logger = get_logger("inventory")
-
-# Regexy do wyciągania SteamID64
-RE_STEAM_ID64 = re.compile(r"7656119[0-9]{10}")
-RE_PROFILES_LINK = re.compile(r"profiles/([0-9]{17})")
-
-
-def resolve_steam_id(input_str: str) -> Optional[str]:
-    """Wyciąga SteamID64 z linku lub ciągu znaków."""
-    input_str = input_str.strip("/")
-    match = RE_STEAM_ID64.search(input_str)
-    if match:
-        return match.group(0)
-    match = RE_PROFILES_LINK.search(input_str)
-    if match:
-        return match.group(0)
-    return None
 
 
 async def fetch_steam_inventory(session: aiohttp.ClientSession, steam_id64: str) -> List[Dict[str, Any]]:
