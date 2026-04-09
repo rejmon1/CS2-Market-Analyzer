@@ -43,7 +43,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 def _fmt_price_row(row: dict) -> str:
     price = float(row["lowest_price"])
-    qty = row.get("quantity") or "?"
+    qty = row["quantity"] if row.get("quantity") is not None else "?"
     ts = row["fetched_at"].strftime("%H:%M:%S") if row.get("fetched_at") else "?"
     return f"  **{row['market']}**: ${price:.2f}  (wolumen: {qty}, o {ts} UTC)"
 
