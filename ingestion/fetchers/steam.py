@@ -1,17 +1,38 @@
 """
-Steam Community Market fetcher.
+SteamAPIs.com fetcher dla Steam Community Market.
 
-Endpoint: GET https://steamcommunity.com/market/priceoverview/
-  ?appid=730&currency=1&market_hash_name=<name>
+Endpoint: GET https://api.steamapis.com/market/items/730?api_key=<KEY>
 
-Brak klucza API. Limit: ~1 zapytanie/sek (publiczne API).
-Zwraca cenę najniższego aktywnego listingu w USD.
+Jedno zapytanie zwraca WSZYSTKIE przedmioty CS2 — bardzo efektywne.
+Wymaga klucza API z https://steamapis.com (plan darmowy: 500 req/miesiąc).
+
+Budżet darmowego planu:
+  500 req / 30 dni ≈ 16.7 req/dzień
+  Zalecany margines: ~14 req/dzień → POLL_INTERVAL_SECONDS ≥ 6000 (ok. 100 min)
+
+Struktura odpowiedzi:
+  {
+    "data": [
+      {
+        "market_hash_name": "AK-47 | Redline (Field-Tested)",
+        "prices": {
+          "safe":   12.50,   ← filtrowana cena medialna (najbardziej wiarygodna)
+          "latest": 12.80,   ← ostatnia sprzedaż
+          "avg":    12.10,
+          "sold":   { "last_7d": 42, ... }
+        }
+      },
+      ...
+    ]
+  }
+
+Dla `lowest_price` używamy `prices.safe` (filtrowana cena medialna steamapis,
+odporna na manipulacje cenowe). Fallback: `prices.latest` (ostatnia sprzedaż).
+Dla `quantity` używamy `prices.sold.last_7d` (liczba sprzedanych w ostatnich 7 dniach).
 """
 from __future__ import annotations
 
-import asyncio
 import logging
-import re
 
 import aiohttp
 
@@ -20,92 +41,80 @@ from shared.models import PriceRecord
 
 logger = logging.getLogger(__name__)
 
-STEAM_PRICE_URL = "https://steamcommunity.com/market/priceoverview/"
-REQUEST_DELAY = 1.2  # sekundy między zapytaniami (Steam: ~1 req/s)
+STEAMAPIS_ITEMS_URL = "https://api.steamapis.com/market/items/730"
 
 
 class SteamFetcher(BaseFetcher):
     MARKET_NAME = "steam"
 
-    def __init__(self, session: aiohttp.ClientSession) -> None:
+    def __init__(self, session: aiohttp.ClientSession, api_key: str) -> None:
         super().__init__(session)
+        self._api_key = api_key
 
     async def fetch(self, items: list[str]) -> list[PriceRecord]:
+        items_set = set(items)
+
+        try:
+            data = await self._get(
+                STEAMAPIS_ITEMS_URL,
+                params={"api_key": self._api_key},
+            )
+        except Exception as exc:
+            logger.error("[steam] Failed to fetch item list: %s", exc)
+            return []
+
+        if not isinstance(data, dict) or "data" not in data:
+            logger.error(
+                "[steam] Unexpected response structure: %s",
+                str(data)[:200],
+            )
+            return []
+
+        logger.debug("[steam] API returned %d total items", len(data["data"]))
+
         records: list[PriceRecord] = []
+        skipped_no_price = 0
 
-        for item in items:
-            try:
-                data = await self._get(
-                    STEAM_PRICE_URL,
-                    params={"appid": "730", "currency": "1", "market_hash_name": item},
+        for entry in data["data"]:
+            name = entry.get("market_hash_name", "")
+            if name not in items_set:
+                continue
+
+            prices = entry.get("prices") or {}
+
+            # Preferujemy safe (filtrowana mediana steamapis) — jest odporna na
+            # manipulacje; fallback do latest (ostatnia sprzedaż) gdy safe=None.
+            price = prices.get("safe")
+            if price is None:
+                price = prices.get("latest")
+            if price is None:
+                skipped_no_price += 1
+                logger.debug("[steam] No price for %r — skipping", name)
+                continue
+
+            sold = prices.get("sold") or {}
+            quantity = int(sold.get("last_7d") or 0)
+
+            records.append(
+                PriceRecord(
+                    market_hash_name=name,
+                    market=self.MARKET_NAME,
+                    lowest_price=float(price),
+                    quantity=quantity,
+                    raw_data=entry,
                 )
+            )
 
-                if not data.get("success"):
-                    logger.debug("[steam] No data for %r", item)
-                    continue
-
-                lowest_price = _parse_steam_price(data.get("lowest_price", ""))
-                if lowest_price is None:
-                    # success=True ale brak lowest_price = item istnieje, ale nie ma aktywnych listingów
-                    logger.debug("[steam] No active listings for %r", item)
-                    continue
-
-                volume_str = data.get("volume", "0").replace(",", "")
-                try:
-                    quantity = int(volume_str) if volume_str else 0
-                except ValueError:
-                    quantity = 0
-
-                records.append(
-                    PriceRecord(
-                        market_hash_name=item,
-                        market=self.MARKET_NAME,
-                        lowest_price=lowest_price,
-                        quantity=quantity,
-                        raw_data=data,
-                    )
-                )
-
-            except Exception as exc:
-                logger.error("[steam] Failed to fetch %r: %s", item, exc)
-
-            finally:
-                # Zawsze czekaj — nawet po błędzie, by nie przekroczyć limitu
-                await asyncio.sleep(REQUEST_DELAY)
-
-        logger.info("[steam] Fetched %d/%d items", len(records), len(items))
+        if skipped_no_price:
+            logger.debug(
+                "[steam] Skipped %d matched items with no current price", skipped_no_price
+            )
+        if not records:
+            logger.warning(
+                "[steam] Fetched 0/%d items — brak dopasowań z API "
+                "(sprawdź LOG_LEVEL=DEBUG dla szczegółów)",
+                len(items),
+            )
+        else:
+            logger.info("[steam] Fetched %d/%d items", len(records), len(items))
         return records
-
-
-def _parse_steam_price(price_str: str) -> float | None:
-    """
-    Parsuje cenę Steam w różnych formatach walutowych → float USD.
-    Przykłady wejścia: "$12.34", "12,34 €", "1,234.56"
-    """
-    # Usuń wszystkie znaki niebędące cyframi, kropką ani przecinkiem
-    cleaned = re.sub(r"[^\d.,]", "", price_str).strip()
-    if not cleaned:
-        return None
-
-    if "." in cleaned and "," in cleaned:
-        # Sprawdź, który separator pojawia się jako ostatni → to separator dziesiętny
-        if cleaned.rfind(".") > cleaned.rfind(","):
-            # Format: 1,234.56 — przecinek = tysiące, kropka = decimal
-            cleaned = cleaned.replace(",", "")
-        else:
-            # Format: 1.234,56 — kropka = tysiące, przecinek = decimal
-            cleaned = cleaned.replace(".", "").replace(",", ".")
-    elif "," in cleaned:
-        # Tylko przecinek — sprawdź czy to separator dziesiętny czy tysięcy
-        parts = cleaned.split(",")
-        if len(parts) == 2 and len(parts[1]) <= 2:
-            # Europejski separator dziesiętny: "12,34" → 12.34
-            cleaned = cleaned.replace(",", ".")
-        else:
-            # Separator tysięcy: "1,234" → 1234
-            cleaned = cleaned.replace(",", "")
-
-    try:
-        return float(cleaned)
-    except ValueError:
-        return None

@@ -69,7 +69,16 @@ def _seed_if_empty(conn) -> None:
 
 def _build_fetchers(session: aiohttp.ClientSession) -> list[BaseFetcher]:
     """Buduje listę aktywnych fetcherów na podstawie dostępnych kluczy API."""
-    fetchers: list[BaseFetcher] = [SteamFetcher(session)]
+    fetchers: list[BaseFetcher] = []
+
+    steamapis_key = config.get_steamapis_key()
+    if steamapis_key:
+        fetchers.append(SteamFetcher(session, steamapis_key))
+    else:
+        logger.warning(
+            "STEAMAPIS_API_KEY not set — Steam (steamapis.com) disabled. "
+            "Utwórz darmowe konto na https://steamapis.com i wpisz klucz do .env"
+        )
 
     skinport_id, skinport_secret = config.get_skinport_credentials()
     if skinport_id and skinport_secret:
