@@ -6,7 +6,8 @@ services:
     restart: unless-stopped
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-cs2user}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-cs2db}
-      - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-300}
+      - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-6000}
+      - STEAMAPIS_API_KEY=${STEAMAPIS_API_KEY:-}
       - SKINPORT_CLIENT_ID=${SKINPORT_CLIENT_ID:-}
       - SKINPORT_CLIENT_SECRET=${SKINPORT_CLIENT_SECRET:-}
       - CSFLOAT_API_KEY=${CSFLOAT_API_KEY:-}
@@ -32,12 +33,15 @@ services:
       - cs2net
 
   discord_bot:
-    build: ./discord_bot
+    build:
+      context: .
+      dockerfile: discord_bot/Dockerfile
     restart: unless-stopped
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-cs2user}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-cs2db}
-      # DISCORD_TOKEN=${DISCORD_TOKEN}
-      # DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID}
+      - DISCORD_TOKEN=${DISCORD_TOKEN:-}
+      - DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID:-}
+      - ALERT_POLL_INTERVAL_SECONDS=${ALERT_POLL_INTERVAL_SECONDS:-30}
     depends_on:
       db:
         condition: service_healthy

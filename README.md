@@ -15,10 +15,10 @@ System do monitorowania i arbitrażu cen skórek CS2 oparty na mikroserwisach.
 │  (arbitraż) │    wstawia alerty    │  (tabela)   │
 └─────────────┘                      └─────┬───────┘
                                            │
-┌─────────────┐    czyta alerty      ╔═════▼═══════╗
-│ discord_bot │ ◄─────────────────── ║  (todo)     ║
-│  (komendy)  │                      ╚═════════════╝
-└─────────────┘
+┌─────────────┐    czyta alerty      ┌─────▼───────┐
+│ discord_bot │ ◄─────────────────── │  alerty     │
+│  (komendy)  │    auto + na żądanie │  (tabela)   │
+└─────────────┘                      └─────────────┘
 ```
 
 **Zasada:** Discord bot i serwis analysis zawsze czytają z lokalnej bazy — nigdy nie odpytują zewnętrznych API bezpośrednio. Serwis `ingestion` jest jedynym punktem kontaktu z rynkami.
@@ -29,7 +29,7 @@ System do monitorowania i arbitrażu cen skórek CS2 oparty na mikroserwisach.
 |--------|------|
 | `ingestion` | Cykliczne pobieranie cen (Steam, Skinport, CSFloat) i zapis do bazy |
 | `analysis` | Silnik arbitrażowy — placeholder, gotowy do rozbudowy |
-| `discord_bot` | Bot Discord — placeholder, gotowy do rozbudowy |
+| `discord_bot` | Bot Discord — komendy `!price`, `!alerts`, `!add_item`, itp. + automatyczne powiadomienia |
 | `db` | PostgreSQL 16 z automatycznym inicjowaniem schematu |
 
 ## 🚀 Uruchomienie lokalne
@@ -175,6 +175,7 @@ ARBITRAGE_MIN_SPREAD_PCT=0.1
 # Discord - zostaw puste jeśli nie testujesz bota
 DISCORD_TOKEN=
 DISCORD_CHANNEL_ID=
+ALERT_POLL_INTERVAL_SECONDS=30
 ```
 
 > **Dlaczego `POLL_INTERVAL_SECONDS=60` i `ARBITRAGE_MIN_SPREAD_PCT=0.1`?**
@@ -259,13 +260,21 @@ Cykl zakończony — wygenerowano 3 alertów
 docker compose logs discord_bot
 ```
 
-Aktualnie powinno pokazać:
+Bez ustawionego `DISCORD_TOKEN` bot zakończy pracę z komunikatem:
 
 ```
-Discord bot service started (placeholder)
+DISCORD_TOKEN is not set — bot nie zostanie uruchomiony
+Ustaw DISCORD_TOKEN w pliku .env i zrestartuj kontener discord_bot.
 ```
 
-Bot jest placeholderem — pełna implementacja jest planowana.
+Po ustawieniu tokenu prawidłowy start wygląda tak:
+
+```
+Discord bot service starting…
+Bot zalogowany jako CS2Bot#1234 (id: 123456789)
+Prefiks komend: !
+Kanał alertów: 987654321
+```
 
 ---
 
@@ -362,28 +371,55 @@ A silnik analizy będzie miał dane do porównywania cen między rynkami.
 
 ---
 
-### 6. Test Discord bota (opcjonalnie)
+### 6. Test Discord bota
 
 Jeśli chcesz przetestować bota:
 
 1. Wejdź na [Discord Developer Portal](https://discord.com/developers/applications)
 2. Stwórz nową aplikację → Bot → skopiuj **Token**
-3. Zaproś bota na swój serwer testowy (OAuth2 → Bot → uprawnienia: `Send Messages`, `Read Message History`)
-4. Skopiuj **ID kanału** (prawy klik na kanał → "Kopiuj ID kanału" przy włączonym trybie dewelopera)
-5. Uzupełnij `.env`:
+3. W sekcji **Privileged Gateway Intents** włącz **Message Content Intent**
+4. Zaproś bota na swój serwer testowy (OAuth2 → URL Generator → scope: `bot`, uprawnienia: `Send Messages`, `Read Message History`)
+5. Skopiuj **ID kanału** (prawy klik na kanał → "Kopiuj ID kanału" przy włączonym trybie dewelopera w ustawieniach Discord)
+6. Uzupełnij `.env`:
 
 ```env
 DISCORD_TOKEN=twoj_token_bota
 DISCORD_CHANNEL_ID=id_kanalu
 ```
 
-6. Zrestartuj bota:
+7. Zrestartuj bota:
 
 ```bash
 docker compose restart discord_bot
 ```
 
-> **Uwaga:** Bot jest aktualnie placeholderem i nie obsługuje jeszcze żadnych komend.
+8. Sprawdź logi:
+
+```bash
+docker compose logs discord_bot
+```
+
+Oczekiwany wynik:
+
+```
+Discord bot service starting…
+Bot zalogowany jako CS2Bot#1234 (id: 123456789)
+Prefiks komend: !
+Kanał alertów: 987654321
+```
+
+9. Przetestuj komendy na swoim serwerze Discord:
+
+```
+!list_items
+!price AK-47 | Redline (Field-Tested)
+!alerts
+!add_item AWP | Asiimov (Field-Tested)
+!remove_item AWP | Asiimov (Field-Tested)
+!clear_alerts
+```
+
+Bot będzie też automatycznie wysyłać nowe alerty arbitrażowe na skonfigurowany kanał co 30 sekund (zmienna `ALERT_POLL_INTERVAL_SECONDS`).
 
 ---
 
@@ -410,7 +446,7 @@ docker compose up -d --build
 | `ingestion` ciągle restartuje | Błąd połączenia z bazą | Upewnij się, że `db` jest `healthy` przed sprawdzaniem logów |
 | `Fetched 0/50 items` | Steam odrzucił zapytania (rate limit) | Poczekaj kilka minut, Steam API ma limity |
 | `Znaleziono 0 okazji arbitrażowych` | Ceny tylko z jednego rynku | Dodaj klucze Skinport/CSFloat lub obniż `ARBITRAGE_MIN_SPREAD_PCT` |
-| Kontener `discord_bot` crashuje | Brak tokenu lub zły token | Sprawdź `DISCORD_TOKEN` w `.env`, bot jest placeholderem — powinien tylko wypisać log i stać |
+| Kontener `discord_bot` zatrzymuje się | Brak tokenu lub zły token | Ustaw `DISCORD_TOKEN` w `.env`, włącz **Message Content Intent** w Developer Portal |
 
 ---
 
@@ -430,18 +466,20 @@ UPDATE items SET is_active = FALSE WHERE market_hash_name = 'AK-47 | Asiimov (Ba
 
 ---
 
-## 💬 Planowane komendy Discord bota
+## 💬 Komendy Discord bota
 
-Poniższe komendy zostaną dodane do serwisu `discord_bot` w kolejnej iteracji:
+Wszystkie komendy używają prefiksu `!`. Bot czyta wyłącznie z lokalnej bazy — nigdy nie odpytuje zewnętrznych API.
 
 | Komenda | Opis |
 |---------|------|
 | `!add_item <market_hash_name>` | Dodaje item do listy śledzonych (wstawia do tabeli `items`) |
-| `!remove_item <market_hash_name>` | Deaktywuje śledzenie itemu (soft-delete) |
+| `!remove_item <market_hash_name>` | Deaktywuje śledzenie itemu (soft-delete, historia cen zachowana) |
 | `!list_items` | Wyświetla wszystkie aktywnie śledzone itemy |
-| `!price <market_hash_name>` | Pokazuje ostatnie ceny z każdego rynku (z lokalnej bazy, bez nowych zapytań do API) |
+| `!price <market_hash_name>` | Pokazuje ostatnie ceny z każdego rynku (z lokalnej bazy) |
 | `!alerts` | Wyświetla nowe alerty arbitrażowe (niesłane) |
 | `!clear_alerts` | Oznacza wszystkie alerty jako przeczytane |
+
+Dodatkowo bot automatycznie wysyła nowe alerty na kanał `DISCORD_CHANNEL_ID` co `ALERT_POLL_INTERVAL_SECONDS` sekund (domyślnie 30 s).
 
 Przykłady `market_hash_name` (dokładna nazwa ze Steam Market):
 - `AK-47 | Redline (Field-Tested)`

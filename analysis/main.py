@@ -23,7 +23,7 @@ import psycopg2
 
 import config
 from shared import db
-from shared.logger import setup_logger
+from shared.logger import get_logger
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +185,7 @@ def run_once(conn) -> int:
 
 
 def main() -> None:
-    setup_logger()
+    logger = get_logger(__name__)
     logger.info("Analysis service started")
 
     interval = config.get_analysis_interval()
