@@ -136,6 +136,284 @@ docker compose down -v       # zatrzymuje i usuwa wolumen (czysta baza)
 
 ---
 
+## 🧪 Jak testować aplikację (przewodnik dla dewelopera)
+
+Ta sekcja opisuje krok po kroku, jak uruchomić i zweryfikować działanie każdego serwisu lokalnie.
+
+### Minimalne wymagania do pierwszego testu
+
+- Docker Desktop (lub Docker Engine) uruchomiony w tle
+- Tylko to — **żadne klucze API nie są wymagane** do podstawowego testu (Steam działa bez klucza)
+
+---
+
+### 1. Przygotuj plik `.env`
+
+```bash
+cp .env.example .env
+```
+
+Do szybkiego testu **wystarczy taki `.env`** (reszta pól pusta):
+
+```env
+POSTGRES_USER=cs2user
+POSTGRES_PASSWORD=changeme
+POSTGRES_DB=cs2db
+
+# Skinport i CSFloat - zostaw puste, ingestion uruchomi się tylko ze Steam
+SKINPORT_CLIENT_ID=
+SKINPORT_CLIENT_SECRET=
+CSFLOAT_API_KEY=
+
+# Skróć interwały żeby szybciej zobaczyć efekty
+POLL_INTERVAL_SECONDS=60
+ANALYSIS_INTERVAL_SECONDS=10
+
+# Obniż próg arbitrażu żeby zobaczyć alerty nawet na małych różnicach cen
+ARBITRAGE_MIN_SPREAD_PCT=0.1
+
+# Discord - zostaw puste jeśli nie testujesz bota
+DISCORD_TOKEN=
+DISCORD_CHANNEL_ID=
+```
+
+> **Dlaczego `POLL_INTERVAL_SECONDS=60` i `ARBITRAGE_MIN_SPREAD_PCT=0.1`?**
+> Przy domyślnych ustawieniach cykl trwa ~6 minut. Skrócone wartości pozwalają zobaczyć wyniki w ciągu ~2 minut. Po teście przywróć `300` i `5.0`.
+
+---
+
+### 2. Zbuduj i uruchom kontenery
+
+```bash
+docker compose up -d --build
+```
+
+Sprawdź, że wszystkie 4 kontenery wystartowały:
+
+```bash
+docker compose ps
+```
+
+Oczekiwany wynik:
+
+```
+NAME                     SERVICE        STATUS          PORTS
+cs2-db                   db             running (healthy)
+cs2-...-ingestion-1      ingestion      running
+cs2-...-analysis-1       analysis       running
+cs2-...-discord_bot-1    discord_bot    running
+```
+
+> Jeśli kontener `db` nie jest `healthy`, poczekaj 10–15 s i odśwież `docker compose ps`.
+
+---
+
+### 3. Sprawdź logi każdego serwisu
+
+#### Serwis `ingestion` — pobieranie cen
+
+```bash
+docker compose logs -f ingestion
+```
+
+Prawidłowy start wygląda tak:
+
+```
+Seeded 50 default items into items table
+Poll cycle: 50 items × 1 markets
+[steam] Fetching item 1/50: AK-47 | Redline (Field-Tested)
+...
+[steam] Fetched 48/50 items
+Poll cycle done: 48 price records inserted in 63.2s — sleeping 60s
+```
+
+Czego szukać:
+- `Seeded N default items` — baza zasilona itemami ✅
+- `Fetched N/50 items` — ceny pobrane ze Steam ✅
+- `price records inserted` — dane zapisane w bazie ✅
+- Brak `ERROR` ani `Exception` ✅
+
+#### Serwis `analysis` — silnik arbitrażowy
+
+```bash
+docker compose logs -f analysis
+```
+
+Prawidłowe logi:
+
+```
+Analysis service started
+Konfiguracja: interwał=10s, minimalny_spread=0.1%
+Znaleziono 3 potencjalnych okazji arbitrażowych (próg: 0.1%)
+Alert #1: 'AK-47 | Redline (Field-Tested)' | kup na steam → sprzedaj na skinport | spread netto: 2.30%
+Cykl zakończony — wygenerowano 3 alertów
+```
+
+> Jeśli widzisz `Brak cen w bazie — pomijam cykl`, to ingestion jeszcze nie zebrał danych — poczekaj aż ingestion ukończy pierwszy cykl.
+
+> Alerty arbitrażowe wymagają cen z **co najmniej dwóch rynków**. Przy samym Steam zobaczysz `0 alertów` — to normalne. Dodaj klucze Skinport / CSFloat żeby alerty działały.
+
+#### Serwis `discord_bot`
+
+```bash
+docker compose logs discord_bot
+```
+
+Aktualnie powinno pokazać:
+
+```
+Discord bot service started (placeholder)
+```
+
+Bot jest placeholderem — pełna implementacja jest planowana.
+
+---
+
+### 4. Zweryfikuj dane w bazie PostgreSQL
+
+```bash
+docker compose exec db psql -U cs2user -d cs2db
+```
+
+#### Sprawdź itemy
+
+```sql
+-- Ile itemów załadował seed
+SELECT COUNT(*) FROM items;
+-- Oczekiwane: 50
+
+-- Kilka przykładowych nazw
+SELECT market_hash_name FROM items LIMIT 5;
+```
+
+#### Sprawdź zebrane ceny
+
+```sql
+-- Ile rekordów cen zebrano z każdego rynku
+SELECT market, COUNT(*) AS rekordy FROM prices GROUP BY market;
+
+-- Ostatnie 10 zebranych cen (najnowsze pierwsze)
+SELECT i.market_hash_name, p.market, p.lowest_price, p.fetched_at
+FROM prices p
+JOIN items i ON i.id = p.item_id
+ORDER BY p.fetched_at DESC
+LIMIT 10;
+```
+
+#### Sprawdź alerty arbitrażowe
+
+```sql
+-- Wszystkie alerty (najnowsze pierwsze)
+SELECT a.id, i.market_hash_name, a.alert_type,
+       a.details->>'market_buy'  AS kup_na,
+       a.details->>'market_sell' AS sprzedaj_na,
+       a.details->>'spread_pct'  AS spread,
+       a.sent, a.created_at
+FROM alerts a
+JOIN items i ON i.id = a.item_id
+ORDER BY a.created_at DESC
+LIMIT 20;
+
+-- Tylko niesłane alerty
+SELECT COUNT(*) AS niesłane FROM alerts WHERE sent = FALSE;
+```
+
+#### Sprawdź prowizje rynków
+
+```sql
+-- Prowizje wgrane przy starcie (init.sql)
+SELECT * FROM market_fees;
+```
+
+Wyjdź z psql:
+
+```sql
+\q
+```
+
+---
+
+### 5. Test z kluczami Skinport i CSFloat
+
+Aby przetestować pełną funkcjonalność arbitrażu (ceny z wielu rynków), dodaj klucze do `.env`:
+
+```env
+SKINPORT_CLIENT_ID=twoj_client_id
+SKINPORT_CLIENT_SECRET=twoj_client_secret
+CSFLOAT_API_KEY=twoj_klucz_api
+```
+
+Następnie zrestartuj serwis ingestion:
+
+```bash
+docker compose restart ingestion
+```
+
+Po następnym cyklu ingestion zobaczysz w logach trzy rynki:
+
+```
+Poll cycle: 50 items × 3 markets
+[steam]    Fetched 48/50 items
+[skinport] Fetched 50/50 items
+[csfloat]  Fetched 47/50 items
+```
+
+A silnik analizy będzie miał dane do porównywania cen między rynkami.
+
+---
+
+### 6. Test Discord bota (opcjonalnie)
+
+Jeśli chcesz przetestować bota:
+
+1. Wejdź na [Discord Developer Portal](https://discord.com/developers/applications)
+2. Stwórz nową aplikację → Bot → skopiuj **Token**
+3. Zaproś bota na swój serwer testowy (OAuth2 → Bot → uprawnienia: `Send Messages`, `Read Message History`)
+4. Skopiuj **ID kanału** (prawy klik na kanał → "Kopiuj ID kanału" przy włączonym trybie dewelopera)
+5. Uzupełnij `.env`:
+
+```env
+DISCORD_TOKEN=twoj_token_bota
+DISCORD_CHANNEL_ID=id_kanalu
+```
+
+6. Zrestartuj bota:
+
+```bash
+docker compose restart discord_bot
+```
+
+> **Uwaga:** Bot jest aktualnie placeholderem i nie obsługuje jeszcze żadnych komend.
+
+---
+
+### 7. Czyszczenie środowiska
+
+```bash
+# Zatrzymaj kontenery (dane w bazie zachowane)
+docker compose down
+
+# Zatrzymaj i usuń wszystkie dane (czysta baza przy następnym starcie)
+docker compose down -v
+
+# Przebuduj obrazy od zera (po zmianie kodu)
+docker compose up -d --build
+```
+
+---
+
+### 8. Typowe problemy
+
+| Problem | Przyczyna | Rozwiązanie |
+|---------|-----------|-------------|
+| `db` nie jest `healthy` | PostgreSQL jeszcze startuje | Poczekaj 15 s, sprawdź `docker compose logs db` |
+| `ingestion` ciągle restartuje | Błąd połączenia z bazą | Upewnij się, że `db` jest `healthy` przed sprawdzaniem logów |
+| `Fetched 0/50 items` | Steam odrzucił zapytania (rate limit) | Poczekaj kilka minut, Steam API ma limity |
+| `Znaleziono 0 okazji arbitrażowych` | Ceny tylko z jednego rynku | Dodaj klucze Skinport/CSFloat lub obniż `ARBITRAGE_MIN_SPREAD_PCT` |
+| Kontener `discord_bot` crashuje | Brak tokenu lub zły token | Sprawdź `DISCORD_TOKEN` w `.env`, bot jest placeholderem — powinien tylko wypisać log i stać |
+
+---
+
 ## 🔧 Zmiana listy śledzonych itemów
 
 Edytuj `ingestion/default_items.json` przed pierwszym uruchomieniem — plik zawiera 50 popularnych skinów. Po uruchomieniu, jeśli tabela `items` jest już uzupełniona, plik jest ignorowany.
