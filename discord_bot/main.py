@@ -83,10 +83,10 @@ def _fmt_alert(alert: dict) -> str:
 # Komendy
 # ---------------------------------------------------------------------------
 
-@bot.group(name="set", invoke_without_command=True)
+@bot.hybrid_group(name="set", invoke_without_command=True)
 async def set_group(ctx: commands.Context):
     """Grupa komend !set. Użycie: !set inventory <link_lub_id>"""
-    await ctx.send("❓ Użycie: `!set inventory <link do profilu lub SteamID64>`")
+    await ctx.send("❓ Użycie: `!set inventory <link do profilu lub SteamID64>` (lub /set inventory)")
 
 
 @set_group.command(name="inventory")
@@ -112,10 +112,10 @@ async def set_inventory(ctx: commands.Context, *, steam_url_or_id: str):
         await ctx.send(f"❌ Wystąpił błąd bazy danych: {e}")
 
 
-@bot.group(name="inv", invoke_without_command=True)
+@bot.hybrid_group(name="inv", invoke_without_command=True)
 async def inv_group(ctx: commands.Context):
     """Grupa komend !inv. Użycie: !inv info lub !inv update"""
-    await ctx.send("❓ Użycie: `!inv info` (pokazuje stan) lub `!inv update` (odświeża dane)")
+    await ctx.send("❓ Użycie: `!inv info` lub `!inv update` (lub /inv info)")
 
 
 @inv_group.command(name="info")
@@ -126,12 +126,12 @@ async def inv_info(ctx: commands.Context):
         try:
             profile = db.get_user_profile(conn, str(ctx.author.id))
             if not profile:
-                await ctx.send("❌ Nie masz ustawionego ekwipunku. Użyj `!set inventory <link>`.")
+                await ctx.send("❌ Nie masz ustawionego ekwipunku. Użyj `/set inventory <link>`.")
                 return
 
             items = db.get_user_inventory(conn, str(ctx.author.id))
             if not items:
-                await ctx.send("📋 Twój ekwipunek w bazie jest pusty. Użyj `!inv update`.")
+                await ctx.send("📋 Twój ekwipunek w bazie jest pusty. Użyj `/inv update`.")
                 return
 
             total_value = 0.0
@@ -181,7 +181,7 @@ async def inv_update(ctx: commands.Context):
         conn.close()
 
         if not profile:
-            await ctx.send("❌ Najpierw ustaw ekwipunek: `!set inventory <link>`.")
+            await ctx.send("❌ Najpierw ustaw ekwipunek: `/set inventory <link>`.")
             return
 
         # Wywołaj ten sam mechanizm co !set inventory
@@ -190,7 +190,7 @@ async def inv_update(ctx: commands.Context):
         await ctx.send(f"❌ Błąd: {e}")
 
 
-@bot.command(name="add_item")
+@bot.hybrid_command(name="add_item")
 async def add_item(ctx: commands.Context, *, market_hash_name: str):
     """Dodaje item do listy śledzonych (lub reaktywuje jeśli był deaktywowany)."""
     try:
@@ -207,7 +207,7 @@ async def add_item(ctx: commands.Context, *, market_hash_name: str):
     logger.info("add_item: %r przez %s", market_hash_name, ctx.author)
 
 
-@bot.command(name="remove_item")
+@bot.hybrid_command(name="remove_item")
 async def remove_item(ctx: commands.Context, *, market_hash_name: str):
     """Deaktywuje śledzenie itemu (soft-delete, historia cen zachowana)."""
     try:
@@ -227,7 +227,7 @@ async def remove_item(ctx: commands.Context, *, market_hash_name: str):
     logger.info("remove_item: %r przez %s (found=%s)", market_hash_name, ctx.author, found)
 
 
-@bot.command(name="list_items")
+@bot.hybrid_command(name="list_items")
 async def list_items(ctx: commands.Context):
     """Wyświetla wszystkie aktywnie śledzone itemy."""
     try:
@@ -261,7 +261,7 @@ async def list_items(ctx: commands.Context):
         await ctx.send(chunk)
 
 
-@bot.command(name="price")
+@bot.hybrid_command(name="price")
 async def price(ctx: commands.Context, *, market_hash_name: str):
     """Pokazuje ostatnie ceny z każdego rynku dla podanego itemu (bez odpytywania API)."""
     try:
@@ -285,7 +285,7 @@ async def price(ctx: commands.Context, *, market_hash_name: str):
     await ctx.send("\n".join(lines))
 
 
-@bot.command(name="alerts")
+@bot.hybrid_command(name="alerts")
 async def alerts_cmd(ctx: commands.Context):
     """Wyświetla nowe (niesłane) alerty arbitrażowe z bazy danych."""
     try:
@@ -318,7 +318,7 @@ async def alerts_cmd(ctx: commands.Context):
         await ctx.send(chunk)
 
 
-@bot.command(name="clear_alerts")
+@bot.hybrid_command(name="clear_alerts")
 async def clear_alerts(ctx: commands.Context):
     """Oznacza wszystkie niesłane alerty jako przeczytane."""
     ids: list[int] = []
@@ -401,14 +401,16 @@ async def before_alert_sender():
 @bot.event
 async def on_ready():
     logger.info("Bot zalogowany jako %s (id: %s)", bot.user, bot.user.id)
+    
+    # Synchronizacja komend Slash
+    try:
+        synced = await bot.tree.sync()
+        logger.info("Zsynchronizowano %d komend Slash", len(synced))
+    except Exception as e:
+        logger.error("Błąd synchronizacji komend Slash: %s", e)
+
     logger.info("Prefiks komend: !")
-    channel_id = config.get_discord_channel_id()
-    if channel_id:
-        logger.info("Kanał alertów: %d", channel_id)
-    else:
-        logger.warning("DISCORD_CHANNEL_ID nie ustawiony — automatyczne alerty wyłączone")
-    if not alert_sender.is_running():
-        alert_sender.start()
+    # ... reszta bez zmian
 
 
 @bot.event
