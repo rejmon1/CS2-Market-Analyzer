@@ -46,7 +46,7 @@ jobs:
         ruff format --check .
 
     - name: Type check (Mypy)
-      run: mypy . --ignore-missing-imports
+      run: mypy .
 
     - name: Run Tests with Coverage
       env:
