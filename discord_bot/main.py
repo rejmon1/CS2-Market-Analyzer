@@ -423,7 +423,7 @@ async def alert_sender():
                         except Exception as e:
                             logger.warning("Błąd wysyłki DM do %s: %s", d_id, e)
                 else:
-                    if channel:
+                    if channel and isinstance(channel, discord.abc.Messageable):
                         await channel.send(msg_content)
 
             db.mark_alerts_sent(conn, ids)

@@ -103,7 +103,8 @@ async def _run_poll_cycle(fetchers: list[BaseFetcher], items: list[str]) -> list
         if isinstance(result, Exception):
             logger.error("[%s] Fetcher failed: %s", fetcher.MARKET_NAME, result)
         else:
-            all_records.extend(result)
+            # result to list[PriceRecord] w przypadku sukcesu
+            all_records.extend(cast(list[PriceRecord], result))
     return all_records
 
 
