@@ -17,7 +17,7 @@ import asyncio
 import json
 import time
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 import aiohttp
 import config
