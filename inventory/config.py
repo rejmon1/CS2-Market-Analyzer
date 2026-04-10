@@ -1,6 +1,7 @@
 """
 Konfiguracja serwisu inventory.
 """
+
 import os
 
 

@@ -5,6 +5,7 @@ Używane przez: ingestion, analysis, discord_bot.
 Wszystkie funkcje przyjmują otwarte połączenie psycopg2 jako pierwszy argument,
 dzięki czemu zarządzanie transakcjami należy do wywołującego.
 """
+
 from __future__ import annotations
 
 import json
@@ -14,7 +15,7 @@ from typing import Any
 import psycopg2
 import psycopg2.extras
 
-from shared.models import Alert, Item, MarketFee, PriceRecord
+from shared.models import MarketFee, PriceRecord
 
 
 def get_connection():
@@ -25,6 +26,7 @@ def get_connection():
 # ---------------------------------------------------------------------------
 # items
 # ---------------------------------------------------------------------------
+
 
 def items_count(conn) -> int:
     """Zwraca łączną liczbę wierszy w tabeli items."""
@@ -97,6 +99,7 @@ def deactivate_item(conn, market_hash_name: str) -> bool:
 # prices
 # ---------------------------------------------------------------------------
 
+
 def insert_prices(conn, records: list[PriceRecord]) -> int:
     """
     Bulk-insert listy PriceRecord do tabeli prices.
@@ -129,7 +132,9 @@ def insert_prices(conn, records: list[PriceRecord]) -> int:
                    v.quantity::integer,
                    v.raw_data::jsonb,
                    v.fetched_at::timestamptz
-            FROM (VALUES %s) AS v(market_hash_name, market, lowest_price, quantity, raw_data, fetched_at)
+            FROM (VALUES %s) AS v(
+                market_hash_name, market, lowest_price, quantity, raw_data, fetched_at
+            )
             JOIN items i ON i.market_hash_name = v.market_hash_name
             """,
             rows,
@@ -165,6 +170,7 @@ def get_latest_prices(conn, market_hash_name: str) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # alerts
 # ---------------------------------------------------------------------------
+
 
 def insert_alert(conn, item_id: int | None, alert_type: str, details: dict[str, Any]) -> int:
     """Wstawia nowy alert i zwraca jego id. item_id może być None dla alertów globalnych."""
@@ -215,6 +221,7 @@ def mark_alerts_sent(conn, alert_ids: list[int]) -> None:
 # ---------------------------------------------------------------------------
 # market_fees
 # ---------------------------------------------------------------------------
+
 
 def get_market_fees(conn) -> dict[str, MarketFee]:
     """
@@ -274,7 +281,10 @@ def get_all_latest_prices(conn) -> dict[str, list[dict[str, Any]]]:
 # user profiles & inventories
 # ---------------------------------------------------------------------------
 
-def upsert_user_profile(conn, discord_id: str, steam_id64: str, pending_update: bool = False) -> None:
+
+def upsert_user_profile(
+    conn, discord_id: str, steam_id64: str, pending_update: bool = False
+) -> None:
     """Tworzy lub aktualizuje profil użytkownika (SteamID64)."""
     with conn.cursor() as cur:
         cur.execute(
@@ -342,7 +352,9 @@ def update_user_inventory(conn, discord_id: str, items: list[dict[str, Any]]) ->
 
         # 3. Zaktualizuj datę i odznacz flagę
         cur.execute(
-            "UPDATE user_profiles SET last_updated = NOW(), pending_update = FALSE WHERE discord_id = %s",
+            "UPDATE user_profiles "
+            "SET last_updated = NOW(), pending_update = FALSE "
+            "WHERE discord_id = %s",
             (discord_id,),
         )
     conn.commit()
@@ -363,7 +375,9 @@ def get_user_inventory(conn, discord_id: str) -> list[dict[str, Any]]:
         return [dict(row) for row in cur.fetchall()]
 
 
-def get_historical_prices(conn, market_hash_name: str, interval: str = '24 hours') -> list[dict[str, Any]]:
+def get_historical_prices(
+    conn, market_hash_name: str, interval: str = "24 hours"
+) -> list[dict[str, Any]]:
     """
     Pobiera ceny dla danego itemu sprzed określonego czasu.
     Przydatne do liczenia trendów.

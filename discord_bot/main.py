@@ -5,16 +5,16 @@ Funkcje:
   - Komendy hybrydowe (Slash i Prefix `!`) do zarządzania ekwipunkiem i śledzenia cen.
   - Pętla w tle: wysyła alerty arbitrażowe na kanał i alerty ekwipunku w DM.
 """
+
 from __future__ import annotations
 
 import json
 import sys
-import aiohttp
 
+import config
 import discord
 from discord.ext import commands, tasks
 
-import config
 from shared import db
 from shared.logger import get_logger
 
@@ -25,7 +25,7 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 intents = discord.Intents.default()
-intents.message_content = True   # wymagane dla komend z prefiksem
+intents.message_content = True  # wymagane dla komend z prefiksem
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -33,6 +33,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # ---------------------------------------------------------------------------
 # Pomocnicze
 # ---------------------------------------------------------------------------
+
 
 def _fmt_price_row(row: dict) -> str:
     def _as_dict(value: object) -> dict:
@@ -72,25 +73,27 @@ def _fmt_price_row(row: dict) -> str:
 
         if avg is not None:
             steam_lines.append(f"  • Średnia 7d: ${float(avg):.2f}")
-        steam_lines.append(
-            f"  • Sprzedaż 7d: {int(sold_7d) if sold_7d is not None else '?'}"
-        )
+        steam_lines.append(f"  • Sprzedaż 7d: {int(sold_7d) if sold_7d is not None else '?'}")
         steam_lines.append(
             f"  • Aktywne oferty: {int(active_offers) if active_offers is not None else '?'}"
         )
 
-        return "\n".join([
-            "  **steam**:",
-            *steam_lines,
-            f"  • Odświeżono: {ts} UTC",
-        ])
+        return "\n".join(
+            [
+                "  **steam**:",
+                *steam_lines,
+                f"  • Odświeżono: {ts} UTC",
+            ]
+        )
 
-    return "\n".join([
-        f"  **{row['market']}**:",
-        f"  • Cena: ${price:.2f}",
-        f"  • Wolumen: {qty}",
-        f"  • Odświeżono: {ts} UTC",
-    ])
+    return "\n".join(
+        [
+            f"  **{row['market']}**:",
+            f"  • Cena: ${price:.2f}",
+            f"  • Wolumen: {qty}",
+            f"  • Odświeżono: {ts} UTC",
+        ]
+    )
 
 
 def _fmt_alert(alert: dict) -> str:
@@ -128,6 +131,7 @@ def _fmt_alert(alert: dict) -> str:
 # Komendy
 # ---------------------------------------------------------------------------
 
+
 @bot.hybrid_group(name="set", invoke_without_command=True)
 async def set_group(ctx: commands.Context):
     """Grupa komend /set. Użycie: /set inventory <link_lub_id>"""
@@ -138,22 +142,27 @@ async def set_group(ctx: commands.Context):
 async def set_inventory(ctx: commands.Context, *, steam_url_or_id: str):
     """Ustawia SteamID i zleca pobranie ekwipunku."""
     from shared.steam import resolve_steam_id
-    
+
     steam_id64 = resolve_steam_id(steam_url_or_id)
     if not steam_id64:
-        await ctx.send("❌ Nie udało się wyciągnąć SteamID64. Podaj link `/profiles/ID64` lub samo 17-cyfrowe ID.")
+        await ctx.send(
+            "❌ Nie udało się wyciągnąć SteamID64. "
+            "Podaj link `/profiles/ID64` lub samo 17-cyfrowe ID."
+        )
         return
 
     try:
         conn = db.get_connection()
         try:
             db.upsert_user_profile(conn, str(ctx.author.id), steam_id64, pending_update=True)
-            await ctx.send(f"✅ Ustawiono SteamID: `{steam_id64}`. Ekwipunek zostanie pobrany wkrótce.")
+            await ctx.send(
+                f"✅ Ustawiono SteamID: `{steam_id64}`. Ekwipunek zostanie pobrany wkrótce."
+            )
         finally:
             conn.close()
     except Exception as e:
         logger.exception("Błąd przy zapisie profilu: %s", e)
-        await ctx.send(f"❌ Wystąpił błąd bazy danych.")
+        await ctx.send("❌ Wystąpił błąd bazy danych.")
 
 
 @bot.hybrid_group(name="inv", invoke_without_command=True)
@@ -185,7 +194,9 @@ async def inv_info(ctx: commands.Context):
                 name = item["market_hash_name"]
                 amount = item["amount"]
                 prices = db.get_latest_prices(conn, name)
-                steam_price = next((p["lowest_price"] for p in prices if p["market"] == "steam"), None)
+                steam_price = next(
+                    (p["lowest_price"] for p in prices if p["market"] == "steam"), None
+                )
 
                 if steam_price:
                     val = float(steam_price) * amount
@@ -195,7 +206,8 @@ async def inv_info(ctx: commands.Context):
                     lines.append(f"  • {name} x{amount} — *brak danych cenowych*")
 
             lines.append(f"\n💵 **Suma całkowita (Steam): ${total_value:.2f}**")
-            lines.append(f"🕒 Ostatnia aktualizacja: {profile['last_updated'].strftime('%Y-%m-%d %H:%M:%S')} UTC")
+            last_ts = profile["last_updated"].strftime("%Y-%m-%d %H:%M:%S")
+            lines.append(f"🕒 Ostatnia aktualizacja: {last_ts} UTC")
 
             chunk = ""
             for line in lines:
@@ -211,7 +223,7 @@ async def inv_info(ctx: commands.Context):
             conn.close()
     except Exception as e:
         logger.exception("Błąd przy inv_info: %s", e)
-        await ctx.send(f"❌ Wystąpił błąd.")
+        await ctx.send("❌ Wystąpił błąd.")
 
 
 @inv_group.command(name="update")
@@ -242,7 +254,7 @@ async def add_item(ctx: commands.Context, *, market_hash_name: str):
             conn.close()
     except Exception as exc:
         logger.exception("Błąd przy add_item: %s", exc)
-        await ctx.send(f"❌ Błąd.")
+        await ctx.send("❌ Błąd.")
         return
     await ctx.send(f"✅ Item **{market_hash_name}** dodany do śledzenia.")
 
@@ -258,12 +270,12 @@ async def remove_item(ctx: commands.Context, *, market_hash_name: str):
             conn.close()
     except Exception as exc:
         logger.exception("Błąd przy remove_item: %s", exc)
-        await ctx.send(f"❌ Błąd.")
+        await ctx.send("❌ Błąd.")
         return
     if found:
         await ctx.send(f"🗑️ Item **{market_hash_name}** deaktywowany.")
     else:
-        await ctx.send(f"⚠️ Nie znaleziono itemu w bazie.")
+        await ctx.send("⚠️ Nie znaleziono itemu w bazie.")
 
 
 @bot.hybrid_command(name="list_items")
@@ -277,7 +289,7 @@ async def list_items(ctx: commands.Context):
             conn.close()
     except Exception as exc:
         logger.exception("Błąd przy list_items: %s", exc)
-        await ctx.send(f"❌ Błąd.")
+        await ctx.send("❌ Błąd.")
         return
 
     if not items:
@@ -310,11 +322,11 @@ async def price(ctx: commands.Context, *, market_hash_name: str):
             conn.close()
     except Exception as exc:
         logger.exception("Błąd przy price: %s", exc)
-        await ctx.send(f"❌ Błąd.")
+        await ctx.send("❌ Błąd.")
         return
 
     if not rows:
-        await ctx.send(f"⚠️ Brak danych cenowych.")
+        await ctx.send("⚠️ Brak danych cenowych.")
         return
 
     lines = [f"💰 **{market_hash_name}**"]
@@ -334,7 +346,7 @@ async def alerts_cmd(ctx: commands.Context):
             conn.close()
     except Exception as exc:
         logger.exception("Błąd przy alerts: %s", exc)
-        await ctx.send(f"❌ Błąd.")
+        await ctx.send("❌ Błąd.")
         return
 
     if not unsent:
@@ -370,7 +382,7 @@ async def clear_alerts(ctx: commands.Context):
             conn.close()
     except Exception as exc:
         logger.exception("Błąd przy clear_alerts: %s", exc)
-        await ctx.send(f"❌ Błąd.")
+        await ctx.send("❌ Błąd.")
         return
 
     if ids:
@@ -382,6 +394,7 @@ async def clear_alerts(ctx: commands.Context):
 # ---------------------------------------------------------------------------
 # Pętla w tle — automatyczne wysyłanie nowych alertów
 # ---------------------------------------------------------------------------
+
 
 @tasks.loop(seconds=config.get_alert_poll_interval())
 async def alert_sender():
@@ -395,11 +408,11 @@ async def alert_sender():
             unsent = db.get_unsent_alerts(conn)
             if not unsent:
                 return
-            
+
             ids = [a["id"] for a in unsent]
             for alert in unsent:
                 msg_content = _fmt_alert(alert)
-                
+
                 if alert["alert_type"] == "inventory_value":
                     d_id = alert["details"].get("discord_id")
                     if d_id:
@@ -429,6 +442,7 @@ async def before_alert_sender():
 # Zdarzenia bota
 # ---------------------------------------------------------------------------
 
+
 @bot.event
 async def on_ready():
     logger.info("Bot zalogowany jako %s", bot.user)
@@ -447,12 +461,13 @@ async def on_command_error(ctx: commands.Context, error):
     if isinstance(error, commands.CommandNotFound):
         return
     logger.error("Błąd komendy %s: %s", ctx.command, error)
-    await ctx.send(f"❌ Wystąpił błąd podczas wykonywania komendy.")
+    await ctx.send("❌ Wystąpił błąd podczas wykonywania komendy.")
 
 
 # ---------------------------------------------------------------------------
 # Punkt wejścia
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     try:

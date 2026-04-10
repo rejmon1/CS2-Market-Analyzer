@@ -30,6 +30,7 @@ Dla `lowest_price` używamy `prices.safe` (filtrowana cena medialna steamapis,
 odporna na manipulacje cenowe). Fallback: `prices.latest` (ostatnia sprzedaż).
 Dla `quantity` używamy `prices.sold.last_7d` (liczba sprzedanych w ostatnich 7 dniach).
 """
+
 from __future__ import annotations
 
 import logging
@@ -106,9 +107,7 @@ class SteamFetcher(BaseFetcher):
             )
 
         if skipped_no_price:
-            logger.debug(
-                "[steam] Skipped %d matched items with no current price", skipped_no_price
-            )
+            logger.debug("[steam] Skipped %d matched items with no current price", skipped_no_price)
         if not records:
             logger.warning(
                 "[steam] Fetched 0/%d items — brak dopasowań z API "

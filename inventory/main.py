@@ -6,34 +6,38 @@ Logika:
   3. Zapisuje stan w user_inventories i odznacza pending_update.
   4. Rejestruje przedmioty w globalnej tabeli items (do śledzenia przez ingestion).
 """
+
 import asyncio
-import re
-import time
+from typing import Any, Dict, List, Optional
+
 import aiohttp
-from typing import Optional, List, Dict, Any
 
 from inventory import config
-from shared.steam import resolve_steam_id
 from shared import db
 from shared.logger import get_logger
 
 logger = get_logger("inventory")
 
 
-async def fetch_steam_inventory(session: aiohttp.ClientSession, steam_id64: str) -> Optional[List[Dict[str, Any]]]:
+async def fetch_steam_inventory(
+    session: aiohttp.ClientSession, steam_id64: str
+) -> Optional[List[Dict[str, Any]]]:
     """
     Pobiera i parsuje ekwipunek CS2 ze Steama.
     """
     url = config.get_steam_inventory_url(steam_id64)
-    
+
     # Steam wymaga nagłówków i konkretnych parametrów
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json"
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json",
     }
     params = {
         "l": "english",
-        "count": 1000 # Bezpieczna wartość
+        "count": 1000,  # Bezpieczna wartość
     }
 
     logger.info("Pobieranie ekwipunku dla SteamID64: %s (URL: %s)", steam_id64, url)
@@ -44,9 +48,13 @@ async def fetch_steam_inventory(session: aiohttp.ClientSession, steam_id64: str)
                 logger.warning("Steam Rate Limit (429) dla %s", steam_id64)
                 return None
             if resp.status != 200:
-                logger.error("Błąd Steam API %d dla ID %s. Sprawdź czy profil jest publiczny.", resp.status, steam_id64)
+                logger.error(
+                    "Błąd Steam API %d dla ID %s. Sprawdź czy profil jest publiczny.",
+                    resp.status,
+                    steam_id64,
+                )
                 return None
-            
+
             data = await resp.json()
     except Exception as e:
         logger.error("Błąd połączenia ze Steam dla %s: %s", steam_id64, e)
@@ -68,11 +76,13 @@ async def fetch_steam_inventory(session: aiohttp.ClientSession, steam_id64: str)
         key = (asset["classid"], asset["instanceid"])
         name = descriptions.get(key)
         if name:
-            parsed_items.append({
-                "market_hash_name": name,
-                "asset_id": asset["assetid"],
-                "amount": int(asset.get("amount", 1))
-            })
+            parsed_items.append(
+                {
+                    "market_hash_name": name,
+                    "asset_id": asset["assetid"],
+                    "amount": int(asset.get("amount", 1)),
+                }
+            )
 
     return parsed_items
 
@@ -84,23 +94,25 @@ async def process_pending_updates(conn):
         return
 
     logger.info("Found %d pending inventory updates", len(pending))
-    
+
     async with aiohttp.ClientSession() as session:
         for p in pending:
             discord_id = p["discord_id"]
             steam_id64 = p["steam_id64"]
-            
+
             try:
                 items = await fetch_steam_inventory(session, steam_id64)
-                
+
                 # Jeśli items to None, oznacza to błąd krytyczny/rate limit -> pomijamy odznaczanie
                 if items is None:
-                    logger.warning("Skipping update for %s due to API error (will retry)", discord_id)
+                    logger.warning(
+                        "Skipping update for %s due to API error (will retry)", discord_id
+                    )
                     continue
 
-                # Zapisujemy stan (nawet jeśli lista przedmiotów jest pusta - np. wyczyścili ekwipunek)
+                # Zapisujemy stan (nawet jeśli lista przedmiotów jest pusta)
                 db.update_user_inventory(conn, discord_id, items)
-                
+
                 if items:
                     # Rejestracja w globalnym systemie (dodawanie do items)
                     unique_names = list(set(i["market_hash_name"] for i in items))
@@ -123,8 +135,8 @@ async def main_loop():
                 conn.close()
         except Exception as e:
             logger.error("Error in inventory loop: %s", e)
-        
-        await asyncio.sleep(10) # Sprawdzaj co 10 sekund
+
+        await asyncio.sleep(10)  # Sprawdzaj co 10 sekund
 
 
 if __name__ == "__main__":

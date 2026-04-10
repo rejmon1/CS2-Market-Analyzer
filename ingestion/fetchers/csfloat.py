@@ -8,6 +8,7 @@ Zwraca najtańszy aktywny listing. Cena w centach (integer) → dzielimy przez 1
 Auth: nagłówek "Authorization: <API_KEY>".
 Limit: ok. 1–2 zapytania/sek; używamy REQUEST_DELAY między itemami.
 """
+
 from __future__ import annotations
 
 import asyncio

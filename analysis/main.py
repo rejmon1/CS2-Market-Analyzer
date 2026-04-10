@@ -11,17 +11,17 @@ Cykl pracy (co ANALYSIS_INTERVAL_SECONDS):
        spread_netto = (przychód − koszt) / koszt × 100
   5. Jeśli spread_netto >= ARBITRAGE_MIN_SPREAD_PCT → wstaw alert do bazy.
 """
+
 from __future__ import annotations
 
 import logging
-import sys
 import time
 from itertools import permutations
 from typing import Any
 
+import config
 import psycopg2
 
-import config
 from shared import db
 from shared.logger import get_logger
 
@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Silnik arbitrażowy
 # ---------------------------------------------------------------------------
+
 
 def _find_arbitrage_opportunities(
     prices_by_item: dict[str, list[dict[str, Any]]],
@@ -51,9 +52,7 @@ def _find_arbitrage_opportunities(
 
     for market_hash_name, price_list in prices_by_item.items():
         # Zbuduj mapę {market: lowest_price} dla tego itemu
-        market_prices: dict[str, float] = {
-            p["market"]: p["lowest_price"] for p in price_list
-        }
+        market_prices: dict[str, float] = {p["market"]: p["lowest_price"] for p in price_list}
 
         # Testuj wszystkie uporządkowane pary (kup na A, sprzedaj na B)
         for buy_market, sell_market in permutations(market_prices, 2):
@@ -161,7 +160,10 @@ def check_inventory_trends(conn) -> int:
         if abs(diff_pct) >= 5.0:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT 1 FROM alerts WHERE alert_type = 'inventory_value' AND details->>'discord_id' = %s AND created_at >= NOW() - INTERVAL '24 hours'",
+                    "SELECT 1 FROM alerts "
+                    "WHERE alert_type = 'inventory_value' "
+                    "AND details->>'discord_id' = %s "
+                    "AND created_at >= NOW() - INTERVAL '24 hours'",
                     (discord_id,),
                 )
                 if cur.fetchone():
@@ -175,8 +177,8 @@ def check_inventory_trends(conn) -> int:
                     "discord_id": discord_id,
                     "old_value": round(historical_total, 2),
                     "new_value": round(current_total, 2),
-                    "diff_pct": round(diff_pct, 2)
-                }
+                    "diff_pct": round(diff_pct, 2),
+                },
             )
             alerts_created += 1
             logger.info("Trend alert dla %s: %.2f%%", discord_id, diff_pct)
@@ -196,7 +198,7 @@ def run_once(conn) -> int:
 
     if fees and prices_by_item:
         opportunities = _find_arbitrage_opportunities(prices_by_item, fees, min_spread)
-        
+
         with conn.cursor() as cur:
             cur.execute("SELECT id, market_hash_name FROM items WHERE is_active = TRUE")
             item_id_map: dict[str, int] = {row[1]: row[0] for row in cur.fetchall()}
@@ -205,7 +207,9 @@ def run_once(conn) -> int:
             name = opp["market_hash_name"]
             details = opp["details"]
             item_id = item_id_map.get(name)
-            if item_id and not _already_alerted_recently(conn, item_id, details["market_buy"], details["market_sell"]):
+            if item_id and not _already_alerted_recently(
+                conn, item_id, details["market_buy"], details["market_sell"]
+            ):
                 db.insert_alert(conn, item_id, "arbitrage", details)
                 total_alerts += 1
 
@@ -244,4 +248,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

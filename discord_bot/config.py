@@ -2,6 +2,7 @@
 Konfiguracja serwisu discord_bot.
 Wszystkie wartości pochodzą ze zmiennych środowiskowych (plik .env).
 """
+
 from __future__ import annotations
 
 import os
@@ -27,8 +28,9 @@ def get_discord_channel_id() -> int | None:
         return None
     try:
         return int(raw)
-    except ValueError:
-        raise RuntimeError(f"DISCORD_CHANNEL_ID must be a valid integer, got: {raw!r}")
+    except ValueError as err:
+        msg = f"DISCORD_CHANNEL_ID must be a valid integer, got: {raw!r}"
+        raise RuntimeError(msg) from err
 
 
 def get_alert_poll_interval() -> int:
@@ -36,5 +38,6 @@ def get_alert_poll_interval() -> int:
     raw = os.environ.get("ALERT_POLL_INTERVAL_SECONDS", "30")
     try:
         return int(raw)
-    except ValueError:
-        raise RuntimeError(f"ALERT_POLL_INTERVAL_SECONDS must be a valid integer, got: {raw!r}")
+    except ValueError as err:
+        msg = f"ALERT_POLL_INTERVAL_SECONDS must be a valid integer, got: {raw!r}"
+        raise RuntimeError(msg) from err

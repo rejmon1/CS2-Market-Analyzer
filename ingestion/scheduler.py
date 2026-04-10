@@ -10,6 +10,7 @@ Schemat działania:
      c. Bulk-insertuje wyniki do tabeli prices.
      d. Loguje podsumowanie.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -18,12 +19,12 @@ import time
 from pathlib import Path
 
 import aiohttp
-
 import config
 from fetchers.base import BaseFetcher
 from fetchers.csfloat import CSFloatFetcher
 from fetchers.skinport import SkinportFetcher
 from fetchers.steam import SteamFetcher
+
 from shared.db import (
     get_active_items,
     get_connection,
@@ -49,13 +50,9 @@ async def _wait_for_db():
             logger.info("Database connection established")
             return conn
         except Exception as exc:
-            logger.warning(
-                "DB not ready (attempt %d/%d): %s", attempt, DB_CONNECT_RETRIES, exc
-            )
+            logger.warning("DB not ready (attempt %d/%d): %s", attempt, DB_CONNECT_RETRIES, exc)
             await asyncio.sleep(DB_CONNECT_DELAY)
-    raise RuntimeError(
-        f"Could not connect to database after {DB_CONNECT_RETRIES} attempts"
-    )
+    raise RuntimeError(f"Could not connect to database after {DB_CONNECT_RETRIES} attempts")
 
 
 def _seed_if_empty(conn) -> None:
@@ -84,9 +81,7 @@ def _build_fetchers(session: aiohttp.ClientSession) -> list[BaseFetcher]:
     if skinport_id and skinport_secret:
         fetchers.append(SkinportFetcher(session, skinport_id, skinport_secret))
     else:
-        logger.warning(
-            "SKINPORT_CLIENT_ID / SKINPORT_CLIENT_SECRET not set — Skinport disabled"
-        )
+        logger.warning("SKINPORT_CLIENT_ID / SKINPORT_CLIENT_SECRET not set — Skinport disabled")
 
     csfloat_key = config.get_csfloat_api_key()
     if csfloat_key:
@@ -97,16 +92,14 @@ def _build_fetchers(session: aiohttp.ClientSession) -> list[BaseFetcher]:
     return fetchers
 
 
-async def _run_poll_cycle(
-    fetchers: list[BaseFetcher], items: list[str]
-) -> list[PriceRecord]:
+async def _run_poll_cycle(fetchers: list[BaseFetcher], items: list[str]) -> list[PriceRecord]:
     """Uruchamia wszystkie fetchers równolegle i scala wyniki."""
     results = await asyncio.gather(
         *[f.fetch(items) for f in fetchers],
         return_exceptions=True,
     )
     all_records: list[PriceRecord] = []
-    for fetcher, result in zip(fetchers, results):
+    for fetcher, result in zip(fetchers, results, strict=False):
         if isinstance(result, Exception):
             logger.error("[%s] Fetcher failed: %s", fetcher.MARKET_NAME, result)
         else:
@@ -136,9 +129,7 @@ async def run(poll_interval: int) -> None:
                     await asyncio.sleep(poll_interval)
                     continue
 
-                logger.info(
-                    "Poll cycle: %d items × %d markets", len(items), len(fetchers)
-                )
+                logger.info("Poll cycle: %d items × %d markets", len(items), len(fetchers))
                 t0 = time.monotonic()
 
                 records = await _run_poll_cycle(fetchers, items)
