@@ -5,3 +5,12 @@ requests
 aiohttp
 psycopg2-binary
 discord.py
+
+# Dev dependencies
+ruff
+pytest
+pytest-cov
+pytest-asyncio
+mypy
+types-psycopg2
+types-requests

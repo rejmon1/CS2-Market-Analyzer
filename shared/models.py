@@ -16,7 +16,7 @@ class PriceRecord:
     market_hash_name: str
     market: str               # 'steam' | 'skinport' | 'csfloat'
     lowest_price: float       # najniższa cena w USD
-    quantity: int             # liczba dostępnych ofert (0 jeśli nieznana)
+    quantity: int             # metryka zależna od rynku (np. oferty, sprzedaż 7d)
     raw_data: dict[str, Any]  # surowa odpowiedź API
     fetched_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
