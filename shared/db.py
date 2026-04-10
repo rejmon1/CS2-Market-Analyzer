@@ -150,6 +150,7 @@ def get_latest_prices(conn, market_hash_name: str) -> list[dict[str, Any]]:
                    p.market,
                    p.lowest_price,
                    p.quantity,
+                   p.raw_data,
                    p.fetched_at
             FROM prices p
             JOIN items i ON i.id = p.item_id
@@ -235,7 +236,7 @@ def get_market_fees(conn) -> dict[str, MarketFee]:
 def get_all_latest_prices(conn) -> dict[str, list[dict[str, Any]]]:
     """
     Zwraca ostatni odczyt ceny z każdego rynku dla wszystkich aktywnych itemów.
-    Wynik: { market_hash_name: [ {market, lowest_price, quantity, fetched_at}, ... ] }
+    Wynik: { market_hash_name: [ {market, lowest_price, quantity, raw_data, fetched_at}, ... ] }
     Używane przez silnik analityczny.
     """
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -246,6 +247,7 @@ def get_all_latest_prices(conn) -> dict[str, list[dict[str, Any]]]:
                    p.market,
                    p.lowest_price,
                    p.quantity,
+                   p.raw_data,
                    p.fetched_at
             FROM prices p
             JOIN items i ON i.id = p.item_id
@@ -261,6 +263,7 @@ def get_all_latest_prices(conn) -> dict[str, list[dict[str, Any]]]:
                     "market": row["market"],
                     "lowest_price": float(row["lowest_price"]),
                     "quantity": row["quantity"],
+                    "raw_data": row.get("raw_data"),
                     "fetched_at": row["fetched_at"],
                 }
             )

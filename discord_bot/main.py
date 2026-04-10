@@ -7,6 +7,7 @@ Funkcje:
 """
 from __future__ import annotations
 
+import json
 import sys
 import aiohttp
 
@@ -34,10 +35,62 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # ---------------------------------------------------------------------------
 
 def _fmt_price_row(row: dict) -> str:
+    def _as_dict(value: object) -> dict:
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                return {}
+            return parsed if isinstance(parsed, dict) else {}
+        return {}
+
     price = float(row["lowest_price"])
     qty = row["quantity"] if row.get("quantity") is not None else "?"
     ts = row["fetched_at"].strftime("%H:%M:%S") if row.get("fetched_at") else "?"
-    return f"  **{row['market']}**: ${price:.2f}  (wolumen: {qty}, o {ts} UTC)"
+
+    if row.get("market") == "steam":
+        raw = _as_dict(row.get("raw_data"))
+        prices = _as_dict(raw.get("prices"))
+        sold = _as_dict(prices.get("sold"))
+
+        safe = prices.get("safe")
+        latest = prices.get("latest")
+        avg = prices.get("avg")
+        sold_7d = sold.get("last_7d")
+        active_offers = prices.get("quantity")
+        if active_offers is None:
+            active_offers = raw.get("quantity")
+
+        steam_lines = [f"  • Najniższa cena: ${price:.2f}"]
+
+        if latest is not None:
+            steam_lines.append(f"  • Ostatnia sprzedaż: ${float(latest):.2f}")
+        elif safe is not None:
+            steam_lines.append(f"  • Safe price: ${float(safe):.2f}")
+
+        if avg is not None:
+            steam_lines.append(f"  • Średnia 7d: ${float(avg):.2f}")
+        steam_lines.append(
+            f"  • Sprzedaż 7d: {int(sold_7d) if sold_7d is not None else '?'}"
+        )
+        steam_lines.append(
+            f"  • Aktywne oferty: {int(active_offers) if active_offers is not None else '?'}"
+        )
+
+        return "\n".join([
+            "  **steam**:",
+            *steam_lines,
+            f"  • Odświeżono: {ts} UTC",
+        ])
+
+    return "\n".join([
+        f"  **{row['market']}**:",
+        f"  • Cena: ${price:.2f}",
+        f"  • Wolumen: {qty}",
+        f"  • Odświeżono: {ts} UTC",
+    ])
 
 
 def _fmt_alert(alert: dict) -> str:

@@ -96,7 +96,7 @@ def _find_arbitrage_opportunities(
 
 def _already_alerted_recently(conn, item_id: int, market_buy: str, market_sell: str) -> bool:
     """
-    Sprawdza, czy w ciągu ostatnich 5 minut wygenerowano już alert arbitrażowy
+    Sprawdza, czy w ciągu ostatnich 24 godzin wygenerowano już alert arbitrażowy
     dla tej samej pary (item, rynek_kupna, rynek_sprzedaży).
     Zapobiega zalewaniu kanału Discord duplikatami.
     """
@@ -108,7 +108,7 @@ def _already_alerted_recently(conn, item_id: int, market_buy: str, market_sell: 
               AND alert_type = 'arbitrage'
               AND details->>'market_buy'  = %s
               AND details->>'market_sell' = %s
-              AND created_at >= NOW() - INTERVAL '5 minutes'
+              AND created_at >= NOW() - INTERVAL '24 hours'
             LIMIT 1
             """,
             (item_id, market_buy, market_sell),
@@ -161,7 +161,7 @@ def check_inventory_trends(conn) -> int:
         if abs(diff_pct) >= 5.0:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT 1 FROM alerts WHERE alert_type = 'inventory_value' AND details->>'discord_id' = %s AND created_at >= NOW() - INTERVAL '12 hours'",
+                    "SELECT 1 FROM alerts WHERE alert_type = 'inventory_value' AND details->>'discord_id' = %s AND created_at >= NOW() - INTERVAL '24 hours'",
                     (discord_id,),
                 )
                 if cur.fetchone():
