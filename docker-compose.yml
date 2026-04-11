@@ -48,6 +48,20 @@ services:
     networks:
       - cs2net
 
+  inventory:
+    build:
+      context: .
+      dockerfile: inventory/Dockerfile
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-cs2user}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-cs2db}
+      - INVENTORY_POLL_INTERVAL=${INVENTORY_POLL_INTERVAL:-3600}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - cs2net
+
   db:
     image: postgres:16
     container_name: cs2-db

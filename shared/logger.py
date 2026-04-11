@@ -5,6 +5,7 @@ Użycie:
     from shared.logger import get_logger
     logger = get_logger(__name__)
 """
+
 import logging
 import os
 

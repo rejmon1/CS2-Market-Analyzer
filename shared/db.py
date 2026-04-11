@@ -5,6 +5,7 @@ Używane przez: ingestion, analysis, discord_bot.
 Wszystkie funkcje przyjmują otwarte połączenie psycopg2 jako pierwszy argument,
 dzięki czemu zarządzanie transakcjami należy do wywołującego.
 """
+
 from __future__ import annotations
 
 import json
@@ -14,7 +15,7 @@ from typing import Any
 import psycopg2
 import psycopg2.extras
 
-from shared.models import Alert, Item, MarketFee, PriceRecord
+from shared.models import MarketFee, PriceRecord
 
 
 def get_connection():
@@ -25,6 +26,7 @@ def get_connection():
 # ---------------------------------------------------------------------------
 # items
 # ---------------------------------------------------------------------------
+
 
 def items_count(conn) -> int:
     """Zwraca łączną liczbę wierszy w tabeli items."""
@@ -97,6 +99,7 @@ def deactivate_item(conn, market_hash_name: str) -> bool:
 # prices
 # ---------------------------------------------------------------------------
 
+
 def insert_prices(conn, records: list[PriceRecord]) -> int:
     """
     Bulk-insert listy PriceRecord do tabeli prices.
@@ -129,7 +132,9 @@ def insert_prices(conn, records: list[PriceRecord]) -> int:
                    v.quantity::integer,
                    v.raw_data::jsonb,
                    v.fetched_at::timestamptz
-            FROM (VALUES %s) AS v(market_hash_name, market, lowest_price, quantity, raw_data, fetched_at)
+            FROM (VALUES %s) AS v(
+                market_hash_name, market, lowest_price, quantity, raw_data, fetched_at
+            )
             JOIN items i ON i.market_hash_name = v.market_hash_name
             """,
             rows,
@@ -150,6 +155,7 @@ def get_latest_prices(conn, market_hash_name: str) -> list[dict[str, Any]]:
                    p.market,
                    p.lowest_price,
                    p.quantity,
+                   p.raw_data,
                    p.fetched_at
             FROM prices p
             JOIN items i ON i.id = p.item_id
@@ -165,8 +171,9 @@ def get_latest_prices(conn, market_hash_name: str) -> list[dict[str, Any]]:
 # alerts
 # ---------------------------------------------------------------------------
 
-def insert_alert(conn, item_id: int, alert_type: str, details: dict[str, Any]) -> int:
-    """Wstawia nowy alert i zwraca jego id."""
+
+def insert_alert(conn, item_id: int | None, alert_type: str, details: dict[str, Any]) -> int:
+    """Wstawia nowy alert i zwraca jego id. item_id może być None dla alertów globalnych."""
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -183,7 +190,7 @@ def insert_alert(conn, item_id: int, alert_type: str, details: dict[str, Any]) -
 
 def get_unsent_alerts(conn) -> list[dict[str, Any]]:
     """
-    Zwraca niesłane alerty wraz z market_hash_name itemu.
+    Zwraca niesłane alerty wraz z market_hash_name itemu (jeśli istnieje).
     Używane przez Discord bota.
     """
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -191,7 +198,7 @@ def get_unsent_alerts(conn) -> list[dict[str, Any]]:
             """
             SELECT a.id, a.alert_type, a.details, a.created_at, i.market_hash_name
             FROM alerts a
-            JOIN items i ON i.id = a.item_id
+            LEFT JOIN items i ON i.id = a.item_id
             WHERE a.sent = FALSE
             ORDER BY a.created_at ASC
             """
@@ -215,6 +222,7 @@ def mark_alerts_sent(conn, alert_ids: list[int]) -> None:
 # market_fees
 # ---------------------------------------------------------------------------
 
+
 def get_market_fees(conn) -> dict[str, MarketFee]:
     """
     Zwraca prowizje wszystkich rynków jako słownik {market: MarketFee}.
@@ -235,7 +243,7 @@ def get_market_fees(conn) -> dict[str, MarketFee]:
 def get_all_latest_prices(conn) -> dict[str, list[dict[str, Any]]]:
     """
     Zwraca ostatni odczyt ceny z każdego rynku dla wszystkich aktywnych itemów.
-    Wynik: { market_hash_name: [ {market, lowest_price, quantity, fetched_at}, ... ] }
+    Wynik: { market_hash_name: [ {market, lowest_price, quantity, raw_data, fetched_at}, ... ] }
     Używane przez silnik analityczny.
     """
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -246,6 +254,7 @@ def get_all_latest_prices(conn) -> dict[str, list[dict[str, Any]]]:
                    p.market,
                    p.lowest_price,
                    p.quantity,
+                   p.raw_data,
                    p.fetched_at
             FROM prices p
             JOIN items i ON i.id = p.item_id
@@ -261,7 +270,131 @@ def get_all_latest_prices(conn) -> dict[str, list[dict[str, Any]]]:
                     "market": row["market"],
                     "lowest_price": float(row["lowest_price"]),
                     "quantity": row["quantity"],
+                    "raw_data": row.get("raw_data"),
                     "fetched_at": row["fetched_at"],
                 }
             )
         return result
+
+
+# ---------------------------------------------------------------------------
+# user profiles & inventories
+# ---------------------------------------------------------------------------
+
+
+def upsert_user_profile(
+    conn, discord_id: str, steam_id64: str, pending_update: bool = False
+) -> None:
+    """Tworzy lub aktualizuje profil użytkownika (SteamID64)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO user_profiles (discord_id, steam_id64, pending_update, last_updated)
+            VALUES (%s, %s, %s, NOW())
+            ON CONFLICT (discord_id) DO UPDATE
+                SET steam_id64 = EXCLUDED.steam_id64,
+                    pending_update = EXCLUDED.pending_update,
+                    last_updated = NOW()
+            """,
+            (discord_id, steam_id64, pending_update),
+        )
+    conn.commit()
+
+
+def get_user_profile(conn, discord_id: str) -> dict[str, Any] | None:
+    """Pobiera dane profilu użytkownika."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT discord_id, steam_id64, last_updated FROM user_profiles WHERE discord_id = %s",
+            (discord_id,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def get_all_user_profiles(conn) -> list[dict[str, Any]]:
+    """Zwraca wszystkie profile użytkowników do analizy trendów."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT discord_id, steam_id64, last_updated FROM user_profiles")
+        return [dict(row) for row in cur.fetchall()]
+
+
+def get_pending_updates(conn) -> list[dict[str, Any]]:
+    """Zwraca profile, które oczekują na aktualizację ekwipunku."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT discord_id, steam_id64 FROM user_profiles WHERE pending_update = TRUE")
+        return [dict(row) for row in cur.fetchall()]
+
+
+def update_user_inventory(conn, discord_id: str, items: list[dict[str, Any]]) -> None:
+    """
+    Zastępuje obecny ekwipunek użytkownika nowym stanem.
+    Odznacza flagę pending_update.
+    """
+    with conn.cursor() as cur:
+        # 1. Usuń stary ekwipunek
+        cur.execute("DELETE FROM user_inventories WHERE discord_id = %s", (discord_id,))
+
+        # 2. Wstaw nowy
+        if items:
+            rows = [
+                (discord_id, i["market_hash_name"], i["asset_id"], i.get("amount", 1))
+                for i in items
+            ]
+            psycopg2.extras.execute_values(
+                cur,
+                """
+                INSERT INTO user_inventories (discord_id, market_hash_name, asset_id, amount)
+                VALUES %s
+                """,
+                rows,
+            )
+
+        # 3. Zaktualizuj datę i odznacz flagę
+        cur.execute(
+            "UPDATE user_profiles "
+            "SET last_updated = NOW(), pending_update = FALSE "
+            "WHERE discord_id = %s",
+            (discord_id,),
+        )
+    conn.commit()
+
+
+def get_user_inventory(conn, discord_id: str) -> list[dict[str, Any]]:
+    """Zwraca aktualną listę przedmiotów w ekwipunku użytkownika."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT market_hash_name, asset_id, amount, added_at
+            FROM user_inventories
+            WHERE discord_id = %s
+            ORDER BY market_hash_name
+            """,
+            (discord_id,),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def get_historical_prices(
+    conn, market_hash_name: str, interval: str = "24 hours"
+) -> list[dict[str, Any]]:
+    """
+    Pobiera ceny dla danego itemu sprzed określonego czasu.
+    Przydatne do liczenia trendów.
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT DISTINCT ON (p.market)
+                   p.market,
+                   p.lowest_price,
+                   p.fetched_at
+            FROM prices p
+            JOIN items i ON i.id = p.item_id
+            WHERE i.market_hash_name = %s
+              AND p.fetched_at <= NOW() - %s::interval
+            ORDER BY p.market, p.fetched_at DESC
+            """,
+            (market_hash_name, interval),
+        )
+        return [dict(row) for row in cur.fetchall()]

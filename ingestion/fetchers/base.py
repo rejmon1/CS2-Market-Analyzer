@@ -4,6 +4,7 @@ Abstrakcyjna klasa bazowa dla wszystkich fetcherów rynkowych.
 Każdy fetcher implementuje metodę fetch(items) → list[PriceRecord]
 i dziedziczy logikę retry / rate-limit handling z tej klasy.
 """
+
 from __future__ import annotations
 
 import abc
@@ -76,7 +77,7 @@ class BaseFetcher(abc.ABC):
                         continue
 
                     if resp.status >= 500:
-                        wait = self.RETRY_BACKOFF ** attempt
+                        wait = self.RETRY_BACKOFF**attempt
                         logger.warning(
                             "[%s] Server error %d, retry %d/%d in %.0fs",
                             self.MARKET_NAME,
@@ -92,7 +93,7 @@ class BaseFetcher(abc.ABC):
                     return await resp.json(content_type=None)
 
             except aiohttp.ClientError as exc:
-                wait = self.RETRY_BACKOFF ** attempt
+                wait = self.RETRY_BACKOFF**attempt
                 logger.warning(
                     "[%s] Request error (attempt %d/%d): %s — retrying in %.0fs",
                     self.MARKET_NAME,

@@ -136,6 +136,66 @@ docker compose down -v       # zatrzymuje i usuwa wolumen (czysta baza)
 
 ---
 
+## 🧪 Testowanie i CI/CD (Automatyczna Kontrola Jakości)
+
+W projekcie wdrożono strategię automatycznego testowania oraz pipeline CI/CD (GitHub Actions), aby zapewnić wysoką jakość kodu przy każdym uaktualnieniu repozytorium.
+
+### 1. Strategia testowania
+
+#### Poziomy testów
+*   **Testy jednostkowe (Unit tests):** Weryfikacja logiki biznesowej w odizolowaniu (np. modele danych w `shared/models.py`, fetchery w `ingestion/`).
+*   **Testy integracyjne:** Sprawdzenie współpracy między komponentami (np. `shared/db.py` ↔ Baza danych PostgreSQL).
+*   **Statyczna analiza:** Automatyczne sprawdzanie błędów składniowych, typowania i stylu kodu przy użyciu narzędzi **Ruff** oraz **Mypy**.
+
+#### Narzędzia
+*   **pytest:** Główny framework testowy.
+*   **ruff:** Błyskawiczny linter i formatter kodu.
+*   **mypy:** Statyczne sprawdzanie typów.
+*   **pytest-cov:** Generowanie raportów pokrycia kodu (coverage).
+
+#### Lista testów
+
+| ID | Typ | Nazwa testu | Co testuje | Oczekiwany wynik | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **T-01** | Statyczny | `ruff_check` | Poprawność stylu i brak błędów lintera | Sukces (brak błędów) | Pass |
+| **T-02** | Statyczny | `mypy_check` | Poprawność typowania statycznego | Sukces (brak błędów) | Pass |
+| **T-03** | Jednostkowy | `test_price_record_creation` | Tworzenie modelu PriceRecord | Obiekt posiada poprawne dane | Pass |
+| **T-04** | Jednostkowy | `test_item_creation` | Tworzenie modelu Item | Obiekt posiada poprawne dane | Pass |
+| **T-05** | Integracyjny | `test_db_connection` | Połączenie z bazą danych w CI | Sukces połączenia z Postgres | Pass |
+
+### 2. Jak uruchomić testy lokalnie?
+
+Aby uruchomić testy i analizę statyczną na swoim komputerze, zainstaluj zależności deweloperskie i wykonaj komendy:
+
+```bash
+# Instalacja narzędzi
+pip install -r requirements.txt
+
+# 1. Analiza statyczna (Linter)
+ruff check .
+
+# 2. Formatowanie kodu
+ruff format .
+
+# 3. Sprawdzanie typów
+mypy . --ignore-missing-imports
+
+# 4. Uruchomienie testów z raportem pokrycia
+pytest --cov=shared --cov=ingestion --cov-report=term
+```
+
+### 3. Pipeline CI/CD
+
+Pipeline jest zdefiniowany w `.github/workflows/ci.yml` i uruchamia się automatycznie przy każdym **pushu** i **pull requeście** na branch `main` oraz branche `feature/*`.
+
+**Kroki pipeline'u:**
+1.  **Build:** Instalacja Pythona 3.10 i wszystkich zależności.
+2.  **Lint / Static analysis:** Sprawdzenie jakości kodu za pomocą `ruff` oraz `mypy`.
+3.  **Testy:** Uruchomienie `pytest` w środowisku z bazą danych Postgres.
+4.  **Raport pokrycia:** Wygenerowanie raportu `coverage.xml` i przesłanie go jako artefakt.
+
+---
+
 ## 🧪 Jak testować aplikację (przewodnik dla dewelopera)
 
 Ta sekcja opisuje krok po kroku, jak uruchomić i zweryfikować działanie każdego serwisu lokalnie.

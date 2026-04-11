@@ -2,6 +2,7 @@
 Konfiguracja serwisu analysis.
 Wszystkie wartości pochodzą ze zmiennych środowiskowych (plik .env).
 """
+
 from __future__ import annotations
 
 import os

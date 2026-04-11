@@ -12,6 +12,7 @@ a jeśli jest None — fallback do `min_tradable_price` (najniższa cena
 wyłącznie itemów gotowych do wymiany). Skinport może zwracać null
 dla jednego z tych pól w zależności od stanu listingów.
 """
+
 from __future__ import annotations
 
 import base64
@@ -37,9 +38,7 @@ class SkinportFetcher(BaseFetcher):
         client_secret: str,
     ) -> None:
         super().__init__(session)
-        credentials = base64.b64encode(
-            f"{client_id}:{client_secret}".encode()
-        ).decode()
+        credentials = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
         self._auth_header = f"Basic {credentials}"
 
     async def fetch(self, items: list[str]) -> list[PriceRecord]:

@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS prices (
 
     item_id       INTEGER     NOT NULL REFERENCES items(id) ON DELETE CASCADE,
     -- Obsługiwane rynki: 'steam' | 'skinport' | 'csfloat'
-    market        TEXT        NOT NULL CHECK (market IN ('steam', 'skinport', 'csfloat')),
+    market        TEXT        NOT NULL CHECK (market IN ('steam', 'steam_volume', 'skinport', 'csfloat')),
 
     -- Najniższa dostępna cena w USD
     lowest_price  NUMERIC(12, 5) NOT NULL,
@@ -48,7 +48,9 @@ CREATE TABLE IF NOT EXISTS prices (
     -- Surowa odpowiedź API — ułatwia debugowanie i ponowny parsing
     raw_data      JSONB,
 
-    fetched_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    fetched_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    UNIQUE (item_id, market, fetched_at)
 );
 
 CREATE INDEX IF NOT EXISTS idx_prices_item_market  ON prices(item_id, market);
@@ -63,9 +65,9 @@ CREATE INDEX IF NOT EXISTS idx_prices_fetched_at   ON prices(fetched_at DESC);
 CREATE TABLE IF NOT EXISTS alerts (
     id          BIGSERIAL PRIMARY KEY,
 
-    item_id     INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-    -- 'arbitrage' | 'pump_dump' | 'price_drop'
-    alert_type  TEXT    NOT NULL CHECK (alert_type IN ('arbitrage', 'pump_dump', 'price_drop')),
+    item_id     INTEGER REFERENCES items(id) ON DELETE CASCADE,
+    -- 'arbitrage' | 'pump_dump' | 'price_drop' | 'inventory_value'
+    alert_type  TEXT    NOT NULL CHECK (alert_type IN ('arbitrage', 'pump_dump', 'price_drop', 'inventory_value')),
 
     -- Szczegóły alertu, np.:
     -- { "market_buy": "skinport", "price_buy": 10.50,
@@ -105,3 +107,31 @@ INSERT INTO market_fees (market, seller_fee, buyer_fee) VALUES
     ('skinport', 0.1200, 0.0000),
     ('csfloat',  0.0200, 0.0000)
 ON CONFLICT (market) DO NOTHING;
+
+
+-- -----------------------------------------------------------------------------
+-- TABELA: user_profiles
+-- Powiązanie użytkownika Discord ze SteamID64.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_profiles (
+    discord_id      TEXT        PRIMARY KEY,
+    steam_id64      TEXT        NOT NULL,
+    pending_update  BOOLEAN     NOT NULL DEFAULT FALSE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_updated    TIMESTAMPTZ
+);
+
+-- -----------------------------------------------------------------------------
+-- TABELA: user_inventories
+-- Aktualny stan ekwipunku gracza (snapshot).
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_inventories (
+    id               SERIAL      PRIMARY KEY,
+    discord_id       TEXT        NOT NULL REFERENCES user_profiles(discord_id) ON DELETE CASCADE,
+    market_hash_name TEXT        NOT NULL,
+    asset_id         TEXT        NOT NULL,
+    amount           INTEGER     NOT NULL DEFAULT 1,
+    added_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_inventories_discord_id ON user_inventories(discord_id);
