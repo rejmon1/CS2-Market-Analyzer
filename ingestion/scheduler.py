@@ -109,8 +109,8 @@ async def _run_poll_cycle(fetchers: list[BaseFetcher], items: list[str]) -> list
     return all_records
 
 
-async def run(poll_interval: int) -> None:
-    """Główna pętla schedulera — uruchamiana przez main.py."""
+async def run() -> None:
+    """Główna pętla schedulera. Rozdziela cykle pobierania na podstawie indywidualnych interwałów każdego z rynków (Steam powoli, Skinport/CSFloat szybko)."""
     conn = await _wait_for_db()
     _seed_if_empty(conn)
 
@@ -123,27 +123,48 @@ async def run(poll_interval: int) -> None:
             [f.MARKET_NAME for f in fetchers],
         )
 
+        # Ustal interwały czasowe i wstępny czas wywołania dla każdego rynku ("teraz")
+        intervals = {f: config.get_market_poll_interval(f.MARKET_NAME) for f in fetchers}
+        next_run = {f: time.monotonic() for f in fetchers}
+
         while True:
+            now = time.monotonic()
+            due_fetchers = [f for f in fetchers if now >= next_run[f]]
+
+            # Jeśli żaden rynek nie jest jeszcze gotowy do pobierania, śpimy krótko
+            if not due_fetchers:
+                await asyncio.sleep(5)
+                continue
+
             try:
                 items = get_active_items(conn)
                 if not items:
                     logger.warning("No active items — skipping poll cycle")
-                    await asyncio.sleep(poll_interval)
+                    await asyncio.sleep(60)
+                    for f in due_fetchers:
+                        next_run[f] = time.monotonic() + intervals[f]
                     continue
 
-                logger.info("Poll cycle: %d items × %d markets", len(items), len(fetchers))
+                names = [f.MARKET_NAME for f in due_fetchers]
+                logger.info("Poll cycle: %d items. Fetching markets: %s", len(items), names)
                 t0 = time.monotonic()
 
-                records = await _run_poll_cycle(fetchers, items)
-                inserted = insert_prices(conn, records)
+                # Uruchamiamy tylko rynki, które są uprawnione do pobierania
+                records = await _run_poll_cycle(due_fetchers, items)
+                if records:
+                    inserted = insert_prices(conn, records)
+                    elapsed = time.monotonic() - t0
+                    logger.info(
+                        "Poll cycle done: %d price records inserted in %.1fs",
+                        inserted,
+                        elapsed,
+                    )
+                else:
+                    logger.warning("No price records fetched in this cycle.")
 
-                elapsed = time.monotonic() - t0
-                logger.info(
-                    "Poll cycle done: %d price records inserted in %.1fs — sleeping %ds",
-                    inserted,
-                    elapsed,
-                    poll_interval,
-                )
+                # Ustalamy następne terminy pobrania TYLKO dla tych, które właśnie skończyły pracę
+                for f in due_fetchers:
+                    next_run[f] = time.monotonic() + intervals[f]
 
             except Exception as exc:
                 logger.error("Poll cycle error: %s", exc, exc_info=True)
@@ -157,5 +178,5 @@ async def run(poll_interval: int) -> None:
                     logger.info("Database connection re-established")
                 except Exception as reconnect_exc:
                     logger.error("Failed to reconnect to database: %s", reconnect_exc)
+                await asyncio.sleep(10)
 
-            await asyncio.sleep(poll_interval)

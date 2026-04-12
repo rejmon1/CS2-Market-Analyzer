@@ -15,12 +15,14 @@ def get_database_url() -> str:
     return url
 
 
-def get_poll_interval() -> int:
-    """Interwał między cyklami pollingu w sekundach.
-    Domyślnie 6000 s (ok. 100 min) → ~14 cykli/dzień, bezpieczny margines
-    przy 500 darmowych zapytaniach/miesiąc w steamapis.com.
+def get_market_poll_interval(market_name: str) -> int:
+    """Zwraca interwał między cyklami pobierania (w sekundach) dla konkretnego rynku.
+    Steam z limitami ma domyślnie 6000s (100 minut).
+    Pozostałe darmowe bulk-API (Skinport, CSFloat) mogą działać domyślnie co 300s (5 minut).
     """
-    return int(os.environ.get("POLL_INTERVAL_SECONDS", "6000"))
+    if market_name == "steam":
+        return int(os.environ.get("STEAM_POLL_INTERVAL_SECONDS", "6000"))
+    return int(os.environ.get("GENERAL_POLL_INTERVAL_SECONDS", "300"))
 
 
 def get_steamapis_key() -> str:

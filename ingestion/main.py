@@ -15,9 +15,8 @@ logger = get_logger("ingestion")
 def main() -> None:
     from scheduler import run
 
-    poll_interval = config.get_poll_interval()
-    logger.info("Ingestion service starting (poll_interval=%ds)", poll_interval)
-    asyncio.run(run(poll_interval))
+    logger.info("Ingestion service starting (decoupled market polling)")
+    asyncio.run(run())
 
 
 if __name__ == "__main__":

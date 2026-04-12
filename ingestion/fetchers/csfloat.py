@@ -1,12 +1,11 @@
 """
 CSFloat fetcher.
 
-Endpoint: GET https://csfloat.com/api/v1/listings
-  ?market_hash_name=<name>&limit=1&sort_by=price&order=asc
+Endpoint: GET https://csfloat.com/api/v1/listings/price-list
 
-Zwraca najtańszy aktywny listing. Cena w centach (integer) → dzielimy przez 100.
+Zwraca zbiorczą listę cen wszystkich przedmiotów. Cena w centach (integer) → USD.
 Auth: nagłówek "Authorization: <API_KEY>".
-Limit: ok. 1–2 zapytania/sek; używamy REQUEST_DELAY między itemami.
+Zaleta: Jedno zapytanie dla wszystkich itemów, brak ryzyka rate-limit przy wielu itemach.
 """
 
 from __future__ import annotations
@@ -21,8 +20,7 @@ from shared.models import PriceRecord
 
 logger = logging.getLogger(__name__)
 
-CSFLOAT_LISTINGS_URL = "https://csfloat.com/api/v1/listings"
-REQUEST_DELAY = 0.6  # sekundy między zapytaniami
+CSFLOAT_PRICE_LIST_URL = "https://csfloat.com/api/v1/listings/price-list"
 
 
 class CSFloatFetcher(BaseFetcher):
@@ -33,49 +31,48 @@ class CSFloatFetcher(BaseFetcher):
         self._api_key = api_key
 
     async def fetch(self, items: list[str]) -> list[PriceRecord]:
+        items_set = set(items)
         records: list[PriceRecord] = []
 
-        for item in items:
-            try:
-                data = await self._get(
-                    CSFLOAT_LISTINGS_URL,
-                    params={
-                        "market_hash_name": item,
-                        "limit": "1",
-                        "sort_by": "price",
-                        "order": "asc",
-                    },
-                    headers={"Authorization": self._api_key},
-                )
+        try:
+            # Pobieramy całą listę cen w jednym zapytaniu
+            data = await self._get(
+                CSFLOAT_PRICE_LIST_URL,
+                headers={"Authorization": self._api_key},
+            )
 
-                listings = data.get("data", [])
-                if not listings:
-                    logger.debug("[csfloat] No listings for %r", item)
+            # Obsługa listy obiektów: [{"market_hash_name": "...", "min_price": 71, "quantity": 198}]
+            if not isinstance(data, list):
+                logger.error("[csfloat] Unexpected response type: %s", type(data).__name__)
+                return []
+
+            logger.debug("[csfloat] API returned %d items", len(data))
+
+            for stats in data:
+                name = stats.get("market_hash_name")
+                if not name or name not in items_set:
                     continue
 
-                # Cena w centach → USD
-                price_cents = listings[0].get("price")
+                # Cena w centach -> USD
+                price_cents = stats.get("min_price")
                 if price_cents is None:
                     continue
 
+                quantity = int(stats.get("quantity") or 0)
+                stats["_price_source"] = "min_price"
+
                 records.append(
                     PriceRecord(
-                        market_hash_name=item,
+                        market_hash_name=name,
                         market=self.MARKET_NAME,
                         lowest_price=round(price_cents / 100, 5),
-                        quantity=int(data.get("total_count") or len(listings)),
-                        raw_data={
-                            "listing": listings[0],
-                            "total_count": data.get("total_count", 0),
-                        },
+                        quantity=quantity,
+                        raw_data=stats,
                     )
                 )
 
-            except Exception as exc:
-                logger.error("[csfloat] Failed to fetch %r: %s", item, exc)
-
-            finally:
-                await asyncio.sleep(REQUEST_DELAY)
+        except Exception as exc:
+            logger.error("[csfloat] Failed to fetch price list: %s", exc)
 
         logger.info("[csfloat] Fetched %d/%d items", len(records), len(items))
         return records

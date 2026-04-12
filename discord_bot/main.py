@@ -35,71 +35,57 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # ---------------------------------------------------------------------------
 
 
+from datetime import timedelta
+
 def _fmt_price_row(row: dict) -> str:
     def _as_dict(value: object) -> dict:
-        if isinstance(value, dict):
-            return value
+        if isinstance(value, dict): return value
         if isinstance(value, str):
-            try:
-                parsed = json.loads(value)
-            except json.JSONDecodeError:
-                return {}
-            return parsed if isinstance(parsed, dict) else {}
+            try: return json.loads(value)
+            except: return {}
         return {}
 
-    price = float(row["lowest_price"])
-    qty = row["quantity"] if row.get("quantity") is not None else "?"
-    ts = row["fetched_at"].strftime("%H:%M:%S") if row.get("fetched_at") else "?"
+    # Konwersja czasu (wymuszone UTC+2 / CEST)
+    ts_utc = row.get("fetched_at")
+    if ts_utc:
+        ts_local = ts_utc + timedelta(hours=2)
+        ts_str = ts_local.strftime("%H:%M:%S")
+    else:
+        ts_str = "?"
 
-    if row.get("market") == "steam":
-        raw = _as_dict(row.get("raw_data"))
-        prices = _as_dict(raw.get("prices"))
-        sold = _as_dict(prices.get("sold"))
+    raw = _as_dict(row.get("raw_data"))
+    market = row.get("market", "unknown")
+    qty = row.get("quantity", "?")
+    
+    lines = [f"  **{market}**:"]
+    
+    if market == "steam":
+        p = _as_dict(raw.get("prices"))
+        s = _as_dict(p.get("sold"))
+        
+        if "min" in p:    lines.append(f"    • Najniższa cena: **${float(p['min']):.2f}**")
+        if "median" in p: lines.append(f"    • Mediana: **${float(p['median']):.2f}**")
+        
+        sold_7d = s.get("last_7d")
+        lines.append(f"    • Sprzedano (7 dni): {sold_7d if sold_7d is not None else '?'}")
 
-        safe = prices.get("safe")
-        latest = prices.get("latest")
-        avg = prices.get("avg")
-        sold_7d = sold.get("last_7d")
-        active_offers = prices.get("quantity")
-        if active_offers is None:
-            active_offers = raw.get("quantity")
+    elif market == "skinport":
+        if "min_price" in raw:    lines.append(f"    • Najniższa cena: **${float(raw['min_price']):.2f}**")
+        if "median_price" in raw: lines.append(f"    • Mediana: **${float(raw['median_price']):.2f}**")
+        lines.append(f"    • Aktywne oferty: {qty}")
 
-        steam_lines = [f"  • Najniższa cena: ${price:.2f}"]
+    elif market == "csfloat":
+        if "min_price" in raw:    
+            lines.append(f"    • Najniższa cena: **${float(raw['min_price']) / 100:.2f}**")
+        lines.append(f"    • Aktywne oferty: {qty}")
 
-        if latest is not None:
-            steam_lines.append(f"  • Ostatnia sprzedaż: ${float(latest):.2f}")
-        elif safe is not None:
-            steam_lines.append(f"  • Safe price: ${float(safe):.2f}")
-
-        if avg is not None:
-            steam_lines.append(f"  • Średnia 7d: ${float(avg):.2f}")
-        steam_lines.append(f"  • Sprzedaż 7d: {int(sold_7d) if sold_7d is not None else '?'}")
-        steam_lines.append(
-            f"  • Aktywne oferty: {int(active_offers) if active_offers is not None else '?'}"
-        )
-
-        return "\n".join(
-            [
-                "  **steam**:",
-                *steam_lines,
-                f"  • Odświeżono: {ts} UTC",
-            ]
-        )
-
-    return "\n".join(
-        [
-            f"  **{row['market']}**:",
-            f"  • Cena: ${price:.2f}",
-            f"  • Wolumen: {qty}",
-            f"  • Odświeżono: {ts} UTC",
-        ]
-    )
+    lines.append(f"    • Odświeżono: {ts_str} (CEST)")
+    return "\n".join(lines)
 
 
 def _fmt_alert(alert: dict) -> str:
     at = alert["alert_type"]
     d = alert["details"]
-    # Alerty globalne (np. portfel) nie mają przypisanego konkretnego przedmiotu
     name = alert.get("market_hash_name") or "Ekwipunek"
 
     if at == "arbitrage":
@@ -108,22 +94,29 @@ def _fmt_alert(alert: dict) -> str:
         sell_m = d.get("market_sell", "?")
         p_buy = d.get("price_buy_raw", "?")
         p_sell = d.get("price_sell_raw", "?")
+        q_sell = d.get("quantity_sell", "?")
+        
         return (
             f"💹 **{name}**\n"
-            f"   Kup na **{buy_m}** za ${p_buy}  →  "
-            f"Sprzedaj na **{sell_m}** za ${p_sell}\n"
-            f"   Spread netto: **{spread}%**"
+            f"   Kup na **{buy_m}** (Lowest) za **${p_buy}**\n"
+            f"   Sprzedaj na **{sell_m}** za **${p_sell}**\n"
+            f"   Spread netto: **{spread}%** | Wolumen sprzedaży: {q_sell}"
         )
     elif at == "inventory_value":
-        old_v = d.get("old_value", 0)
-        new_v = d.get("new_value", 0)
+        values = d.get("values", {})
         diff_p = d.get("diff_pct", 0)
+        new_total = d.get("new_total", 0)
         emoji = "📈" if diff_p > 0 else "📉"
-        return (
-            f"{emoji} **Zmiana wartości Twojego ekwipunku!**\n"
-            f"   Poprzednio: **${old_v:.2f}**  →  Obecnie: **${new_v:.2f}**\n"
-            f"   Zmiana: **{diff_p:+.2f}%**"
-        )
+        
+        lines = [
+            f"{emoji} **Zmiana wartości Twojego ekwipunku!**",
+            f"   Łącznie: **${new_total:.2f}** ({diff_p:+.2f}%)",
+            "   Wycena per rynek:"
+        ]
+        for market, val in values.items():
+            lines.append(f"    • {market}: **${val:.2f}**")
+            
+        return "\n".join(lines)
     return f"🔔 **{at}**: {name} - {d}"
 
 
@@ -187,27 +180,33 @@ async def inv_info(ctx: commands.Context):
                 await ctx.send("📋 Twój ekwipunek w bazie jest pusty. Użyj `/inv update`.")
                 return
 
-            total_value = 0.0
+            market_totals: dict[str, float] = {}
             lines = [f"💰 **Twój ekwipunek CS2 ({len(items)} przedmiotów):**"]
 
             for item in items:
                 name = item["market_hash_name"]
                 amount = item["amount"]
                 prices = db.get_latest_prices(conn, name)
-                steam_price = next(
-                    (p["lowest_price"] for p in prices if p["market"] == "steam"), None
-                )
-
-                if steam_price:
-                    val = float(steam_price) * amount
-                    total_value += val
-                    lines.append(f"  • {name} x{amount} — **${val:.2f}**")
+                
+                # Dodaj do sumy każdego rynku
+                for p in prices:
+                    m = p["market"]
+                    val = float(p["lowest_price"]) * amount
+                    market_totals[m] = market_totals.get(m, 0.0) + val
+                
+                # Wypisz cenę Steam jako referencyjną
+                steam_p = next((p["lowest_price"] for p in prices if p["market"] == "steam"), None)
+                if steam_p:
+                    lines.append(f"  • {name} x{amount} — **${float(steam_p) * amount:.2f}** (Steam)")
                 else:
-                    lines.append(f"  • {name} x{amount} — *brak danych cenowych*")
+                    lines.append(f"  • {name} x{amount} — *brak ceny Steam*")
 
-            lines.append(f"\n💵 **Suma całkowita (Steam): ${total_value:.2f}**")
+            lines.append("\n💵 **Wartość portfela per rynek:**")
+            for market, total in market_totals.items():
+                lines.append(f"  • {market}: **${total:.2f}**")
+            
             last_ts = profile["last_updated"].strftime("%Y-%m-%d %H:%M:%S")
-            lines.append(f"🕒 Ostatnia aktualizacja: {last_ts} UTC")
+            lines.append(f"\n🕒 Ostatnia aktualizacja: {last_ts} UTC")
 
             chunk = ""
             for line in lines:

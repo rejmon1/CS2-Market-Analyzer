@@ -75,16 +75,18 @@ class SkinportFetcher(BaseFetcher):
                 continue
 
             # Preferujemy min_price; fallback do min_tradable_price jeśli None.
-            # Skinport może zwracać null dla min_price gdy item nie ma aktywnych
-            # listingów ogółem, ale min_tradable_price jest dostępny dla itemów
-            # gotowych do wymiany.
             min_price = entry.get("min_price")
+            source = "min_price"
             if min_price is None:
                 min_price = entry.get("min_tradable_price")
+                source = "min_tradable_price"
+            
             if min_price is None:
                 skipped_no_price += 1
                 logger.debug("[skinport] No price for %r — skipping", name)
                 continue
+
+            entry["_price_source"] = source  # Tagujemy źródło dla analizy i bota
 
             records.append(
                 PriceRecord(

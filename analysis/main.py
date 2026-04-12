@@ -42,27 +42,33 @@ def _find_arbitrage_opportunities(
     Dla każdego itemu i każdej pary (rynek_kupna, rynek_sprzedaży) oblicza
     realny spread netto. Zwraca listę słowników gotowych do wstawienia jako
     pole `details` alertu arbitrażowego.
-
-    Wzór:
-        koszt      = price_buy  * (1 + buyer_fee_buy)
-        przychód   = price_sell * (1 - seller_fee_sell)
-        spread_pct = (przychód - koszt) / koszt * 100
     """
     opportunities = []
+    min_qty = config.get_min_quantity()
 
     for market_hash_name, price_list in prices_by_item.items():
-        # Zbuduj mapę {market: lowest_price} dla tego itemu
-        market_prices: dict[str, float] = {p["market"]: p["lowest_price"] for p in price_list}
+        # Zbuduj mapę {market: (price, quantity, source)} dla tego itemu
+        market_data: dict[str, tuple[float, int, str]] = {
+            p["market"]: (
+                p["lowest_price"], 
+                p.get("quantity", 0),
+                (p.get("raw_data") or {}).get("_price_source", "unknown")
+            ) for p in price_list
+        }
 
         # Testuj wszystkie uporządkowane pary (kup na A, sprzedaj na B)
-        for buy_market, sell_market in permutations(market_prices, 2):
+        for buy_market, sell_market in permutations(market_data.keys(), 2):
             fee_buy = fees.get(buy_market)
             fee_sell = fees.get(sell_market)
             if fee_buy is None or fee_sell is None:
                 continue
 
-            price_buy = market_prices[buy_market]
-            price_sell = market_prices[sell_market]
+            price_buy, qty_buy, source_buy = market_data[buy_market]
+            price_sell, qty_sell, source_sell = market_data[sell_market]
+
+            # Ignoruj okazje z niskim wolumenem na rynku sprzedaży
+            if qty_sell < min_qty:
+                continue
 
             cost = price_buy * (1 + fee_buy.buyer_fee)
             revenue = price_sell * (1 - fee_sell.seller_fee)
@@ -79,13 +85,16 @@ def _find_arbitrage_opportunities(
                         "details": {
                             "market_buy": buy_market,
                             "price_buy_raw": round(price_buy, 5),
+                            "source_buy": source_buy,
                             "buyer_fee": fee_buy.buyer_fee,
                             "cost": round(cost, 5),
                             "market_sell": sell_market,
                             "price_sell_raw": round(price_sell, 5),
+                            "source_sell": source_sell,
                             "seller_fee": fee_sell.seller_fee,
                             "revenue": round(revenue, 5),
                             "spread_pct": round(spread_pct, 2),
+                            "quantity_sell": qty_sell,
                         },
                     }
                 )
@@ -117,8 +126,9 @@ def _already_alerted_recently(conn, item_id: int, market_buy: str, market_sell: 
 
 def check_inventory_trends(conn) -> int:
     """
-    Dla każdego użytkownika oblicza aktualną wartość ekwipunku i porównuje
-    z wartością sprzed 24h. Jeśli zmiana > 5%, generuje alert.
+    Dla każdego użytkownika oblicza aktualną wartość ekwipunku na każdym rynku
+    i porównuje sumaryczną wartość z tą sprzed 24h.
+    Jeśli zmiana > 5%, generuje alert ze szczegółami per rynek.
     """
     profiles = db.get_all_user_profiles(conn)
     if not profiles:
@@ -131,33 +141,42 @@ def check_inventory_trends(conn) -> int:
         if not inventory:
             continue
 
-        current_total = 0.0
-        historical_total = 0.0
+        # Mapa wartości: {market: total_value}
+        current_values: dict[str, float] = {}
+        historical_values: dict[str, float] = {}
 
         for item in inventory:
             name = item["market_hash_name"]
             amount = item["amount"]
 
-            # Aktualna cena (Steam)
+            # Ceny aktualne ze wszystkich rynków
             latest = db.get_latest_prices(conn, name)
-            curr_p = next((p["lowest_price"] for p in latest if p["market"] == "steam"), None)
-            if curr_p:
-                current_total += float(curr_p) * amount
+            for p in latest:
+                m = p["market"]
+                current_values[m] = current_values.get(m, 0.0) + (float(p["lowest_price"]) * amount)
 
-            # Cena sprzed 24h
+            # Ceny historyczne (sprzed 24h)
             hist = db.get_historical_prices(conn, name, "24 hours")
-            old_p = next((p["lowest_price"] for p in hist if p["market"] == "steam"), None)
-            if old_p:
-                historical_total += float(old_p) * amount
-            elif curr_p:
-                historical_total += float(curr_p) * amount
+            for p in hist:
+                m = p["market"]
+                historical_values[m] = historical_values.get(m, 0.0) + (
+                    float(p["lowest_price"]) * amount
+                )
 
-        if historical_total <= 0:
+        if not current_values:
             continue
 
-        diff_pct = (current_total - historical_total) / historical_total * 100
+        # Do wyliczenia trendu używamy sumy wartości ze wszystkich rynków
+        curr_total = sum(current_values.values())
+        hist_total = sum(historical_values.values()) if historical_values else curr_total
+
+        if hist_total <= 0:
+            continue
+
+        diff_pct = (curr_total - hist_total) / hist_total * 100
 
         if abs(diff_pct) >= 5.0:
+            # Sprawdź czy nie było alertu w ciągu ostatnich 24h
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT 1 FROM alerts "
@@ -175,8 +194,9 @@ def check_inventory_trends(conn) -> int:
                 alert_type="inventory_value",
                 details={
                     "discord_id": discord_id,
-                    "old_value": round(historical_total, 2),
-                    "new_value": round(current_total, 2),
+                    "values": {m: round(v, 2) for m, v in current_values.items()},
+                    "old_total": round(hist_total, 2),
+                    "new_total": round(curr_total, 2),
                     "diff_pct": round(diff_pct, 2),
                 },
             )

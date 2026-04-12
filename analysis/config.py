@@ -23,3 +23,8 @@ def get_analysis_interval() -> int:
 def get_min_spread_pct() -> float:
     """Minimalny realny spread netto (po prowizjach) do wygenerowania alertu (domyślnie 5%)."""
     return float(os.environ.get("ARBITRAGE_MIN_SPREAD_PCT", "5.0"))
+
+
+def get_min_quantity() -> int:
+    """Minimalna liczba przedmiotów (quantity) wymagana do uznania okazji za wiarygodną."""
+    return int(os.environ.get("ARBITRAGE_MIN_QUANTITY", "3"))
