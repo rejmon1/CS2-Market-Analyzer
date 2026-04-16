@@ -84,7 +84,7 @@ def _fmt_price_row(row: dict) -> str:
         lines.append(f"    • Aktywne oferty: {qty}")
 
     elif market == "csfloat":
-        if "min_price" in raw:    
+        if "min_price" in raw:
             lines.append(f"    • Najniższa cena: **${float(raw['min_price']) / 100:.2f}**")
         lines.append(f"    • Aktywne oferty: {qty}")
 
@@ -104,7 +104,7 @@ def _fmt_alert(alert: dict) -> str:
         p_buy = d.get("price_buy_raw", "?")
         p_sell = d.get("price_sell_raw", "?")
         q_sell = d.get("quantity_sell", "?")
-        
+
         return (
             f"💹 **{name}**\n"
             f"   Kup na **{buy_m}** (Lowest) za **${p_buy}**\n"
@@ -116,15 +116,15 @@ def _fmt_alert(alert: dict) -> str:
         diff_p = d.get("diff_pct", 0)
         new_total = d.get("new_total", 0)
         emoji = "📈" if diff_p > 0 else "📉"
-        
+
         lines = [
             f"{emoji} **Zmiana wartości Twojego ekwipunku!**",
             f"   Łącznie: **${new_total:.2f}** ({diff_p:+.2f}%)",
-            "   Wycena per rynek:"
+            "   Wycena per rynek:",
         ]
         for market, val in values.items():
             lines.append(f"    • {market}: **${val:.2f}**")
-            
+
         return "\n".join(lines)
     return f"🔔 **{at}**: {name} - {d}"
 
@@ -196,13 +196,13 @@ async def inv_info(ctx: commands.Context):
                 name = item["market_hash_name"]
                 amount = item["amount"]
                 prices = db.get_latest_prices(conn, name)
-                
+
                 # Dodaj do sumy każdego rynku
                 for p in prices:
                     m = p["market"]
                     val = float(p["lowest_price"]) * amount
                     market_totals[m] = market_totals.get(m, 0.0) + val
-                
+
                 # Wypisz cenę Steam jako referencyjną
                 steam_p = next((p["lowest_price"] for p in prices if p["market"] == "steam"), None)
                 if steam_p:
@@ -214,7 +214,7 @@ async def inv_info(ctx: commands.Context):
             lines.append("\n💵 **Wartość portfela per rynek:**")
             for market, total in market_totals.items():
                 lines.append(f"  • {market}: **${total:.2f}**")
-            
+
             last_ts = profile["last_updated"].strftime("%Y-%m-%d %H:%M:%S")
             lines.append(f"\n🕒 Ostatnia aktualizacja: {last_ts} UTC")
 

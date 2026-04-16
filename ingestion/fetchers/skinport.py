@@ -80,7 +80,7 @@ class SkinportFetcher(BaseFetcher):
             if min_price is None:
                 min_price = entry.get("min_tradable_price")
                 source = "min_tradable_price"
-            
+
             if min_price is None:
                 skipped_no_price += 1
                 logger.debug("[skinport] No price for %r — skipping", name)
