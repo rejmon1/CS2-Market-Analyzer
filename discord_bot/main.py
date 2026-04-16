@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import timedelta
 
 import config
 import discord
@@ -19,6 +20,7 @@ from shared import db
 from shared.logger import get_logger
 
 logger = get_logger(__name__)
+
 
 # ---------------------------------------------------------------------------
 # Konfiguracja intents
@@ -35,14 +37,15 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # ---------------------------------------------------------------------------
 
 
-from datetime import timedelta
-
 def _fmt_price_row(row: dict) -> str:
     def _as_dict(value: object) -> dict:
-        if isinstance(value, dict): return value
+        if isinstance(value, dict):
+            return value
         if isinstance(value, str):
-            try: return json.loads(value)
-            except: return {}
+            try:
+                return json.loads(value)
+            except Exception:
+                return {}
         return {}
 
     # Konwersja czasu (wymuszone UTC+2 / CEST)
@@ -56,22 +59,28 @@ def _fmt_price_row(row: dict) -> str:
     raw = _as_dict(row.get("raw_data"))
     market = row.get("market", "unknown")
     qty = row.get("quantity", "?")
-    
+
     lines = [f"  **{market}**:"]
-    
+
     if market == "steam":
         p = _as_dict(raw.get("prices"))
         s = _as_dict(p.get("sold"))
-        
-        if "min" in p:    lines.append(f"    • Najniższa cena: **${float(p['min']):.2f}**")
-        if "median" in p: lines.append(f"    • Mediana: **${float(p['median']):.2f}**")
-        
+
+        if "min" in p:
+            lines.append(f"    • Najniższa cena: **${float(p['min']):.2f}**")
+        if "median" in p:
+            lines.append(f"    • Mediana: **${float(p['median']):.2f}**")
+
         sold_7d = s.get("last_7d")
         lines.append(f"    • Sprzedano (7 dni): {sold_7d if sold_7d is not None else '?'}")
 
     elif market == "skinport":
-        if "min_price" in raw:    lines.append(f"    • Najniższa cena: **${float(raw['min_price']):.2f}**")
-        if "median_price" in raw: lines.append(f"    • Mediana: **${float(raw['median_price']):.2f}**")
+        if "min_price" in raw:
+            msg = f"    • Najniższa cena: **${float(raw['min_price']):.2f}**"
+            lines.append(msg)
+        if "median_price" in raw:
+            msg = f"    • Mediana: **${float(raw['median_price']):.2f}**"
+            lines.append(msg)
         lines.append(f"    • Aktywne oferty: {qty}")
 
     elif market == "csfloat":
@@ -197,7 +206,8 @@ async def inv_info(ctx: commands.Context):
                 # Wypisz cenę Steam jako referencyjną
                 steam_p = next((p["lowest_price"] for p in prices if p["market"] == "steam"), None)
                 if steam_p:
-                    lines.append(f"  • {name} x{amount} — **${float(steam_p) * amount:.2f}** (Steam)")
+                    total_val = float(steam_p) * amount
+                    lines.append(f"  • {name} x{amount} — **${total_val:.2f}** (Steam)")
                 else:
                     lines.append(f"  • {name} x{amount} — *brak ceny Steam*")
 

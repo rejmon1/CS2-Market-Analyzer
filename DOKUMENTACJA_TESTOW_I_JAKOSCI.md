@@ -71,6 +71,16 @@ Strategia testowa projektu została dopasowana do specyfiki rozproszonego system
 *   **Rate Limity i Bazy Zewnętrzne:** API Steam i Skinport posiadają bardzo ostre limity zapytań (często wymagają IP whitelisting lub nakładają tymczasowe bany za zbyt duży ruch). Zautomatyzowane uderzanie w prawdziwe API przy każdym commicie w CI zabiłoby konta.
 *   **Wymagany Mocking:** Pełne E2E wymagałoby stworzenia lokalnego serwera HTTP udającego Steam i Skinport, który zwracałby spreparowane, opłacalne różnice cenowe, aby wyzwolić alert w `analysis`.
 
+### 📋 LISTA TESTÓW (Tabele wymagane do raportu)
+
+| ID | Typ | Nazwa testu | Co testuje | Oczekiwany wynik | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **T-01** | Statyczny | `ruff_check` | Sprawdzenie stylu kodu i błędów lintera | Brak błędów stylu i składni | PASS |
+| **T-02** | Statyczny | `mypy_check` | Statyczna analiza typów | Cały kod jest poprawnie otypowany | PASS |
+| **T-03** | Jednostkowy | `test_price_record_creation` | Inicjalizacja modelu PriceRecord | Obiekt przechowuje poprawne ceny | PASS |
+| **T-04** | Jednostkowy | `test_item_creation` | Inicjalizacja modelu Item | Obiekt przechowuje poprawne nazwy | PASS |
+| **T-05** | Integracyjny | `test_db_connection` | Połączenie bazy Postgres w CI | Nawiązanie stabilnego połączenia | PASS |
+
 ---
 
 ## 3. ANALIZA STATYCZNA VS DYNAMICZNA

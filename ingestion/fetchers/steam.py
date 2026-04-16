@@ -97,7 +97,12 @@ class SteamFetcher(BaseFetcher):
             # i przedmiot jest wart więcej niż 10$, ignorujemy to jako błąd API.
             safe_price = prices.get("safe")
             if safe_price and float(price) < (float(safe_price) * 0.1) and float(safe_price) > 10:
-                logger.warning("[steam] Detected price anomaly for %r: Price=$%s, Safe=$%s. Skipping.", name, price, safe_price)
+                logger.warning(
+                    "[steam] Detected price anomaly for %r: Price=$%s, Safe=$%s. Skipping.",
+                    name,
+                    price,
+                    safe_price,
+                )
                 continue
 
             entry["_price_source"] = "min"
