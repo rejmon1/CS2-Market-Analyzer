@@ -16,7 +16,7 @@ Struktura odpowiedzi:
       {
         "market_hash_name": "AK-47 | Redline (Field-Tested)",
         "prices": {
-          "safe":   12.50,   ← filtrowana cena medialna (najbardziej wiarygodna)
+          "safe":   12.50,   ← filtrowana cena medialna (historyczna, nie używana)
           "latest": 12.80,   ← ostatnia sprzedaż
           "avg":    12.10,
           "sold":   { "last_7d": 42, ... }
@@ -26,8 +26,9 @@ Struktura odpowiedzi:
     ]
   }
 
-Dla `lowest_price` używamy `prices.latest` (ostatnia transakcja — aktualny kurs rynkowy).
-`prices.safe` (filtrowana mediana) służy jako fallback gdy `latest` jest niedostępne.
+Dla `lowest_price` używamy wyłącznie `prices.latest` (ostatnia transakcja — aktualny kurs rynkowy).
+Gdy `latest` jest niedostępne, przedmiot jest pomijany (brak aktywnych ofert na Steam).
+`prices.safe` (filtrowana mediana historyczna) jest ignorowana — nie odzwierciedla bieżącego rynku.
 Dla `quantity` używamy `prices.sold.last_7d` (liczba sprzedanych w ostatnich 7 dniach).
 """
 
@@ -83,29 +84,17 @@ class SteamFetcher(BaseFetcher):
 
             prices = entry.get("prices") or {}
 
-            # Używamy 'latest' (ostatnia transakcja) jako aktualnej ceny rynkowej.
-            # 'min' jest ceną historyczną i nie odzwierciedla bieżącego kursu.
-            # Fallback: 'safe' (filtrowana mediana) gdy 'latest' jest niedostępne.
-            price = prices.get("latest") or prices.get("safe")
+            # Używamy wyłącznie 'latest' (ostatnia transakcja) jako aktualnej ceny rynkowej.
+            # Gdy 'latest' jest niedostępne — brak aktywnych ofert na Steam, pomijamy przedmiot.
+            # 'safe' (filtrowana mediana historyczna) jest ignorowana — nie odzwierciedla rynku.
+            price = prices.get("latest")
 
             if price is None:
                 skipped_no_price += 1
-                logger.debug("[steam] No current price ('latest'/'safe') for %r — skipping", name)
+                logger.debug("[steam] Brak ofert na Steam (brak 'latest') dla %r — pomijanie", name)
                 continue
 
-            # Filtr anomalii: jeśli cena jest podejrzanie niska (< 10% ceny safe/mediany)
-            # i przedmiot jest wart więcej niż 10$, ignorujemy to jako błąd API.
-            safe_price = prices.get("safe")
-            if safe_price and float(price) < (float(safe_price) * 0.1) and float(safe_price) > 10:
-                logger.warning(
-                    "[steam] Detected price anomaly for %r: Price=$%s, Safe=$%s. Skipping.",
-                    name,
-                    price,
-                    safe_price,
-                )
-                continue
-
-            entry["_price_source"] = "latest" if prices.get("latest") else "safe"
+            entry["_price_source"] = "latest"
 
             sold = prices.get("sold") or {}
             quantity = int(sold.get("last_7d") or 0)
@@ -121,7 +110,7 @@ class SteamFetcher(BaseFetcher):
             )
 
         if skipped_no_price:
-            logger.debug("[steam] Skipped %d matched items with no current price", skipped_no_price)
+            logger.info("[steam] Pominięto %d pasujących przedmiotów bez aktywnych ofert na Steam (brak 'latest')", skipped_no_price)
         if not records:
             logger.warning(
                 "[steam] Fetched 0/%d items — brak dopasowań z API "
