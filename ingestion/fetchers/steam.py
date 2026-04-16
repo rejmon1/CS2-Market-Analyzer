@@ -26,7 +26,7 @@ Struktura odpowiedzi:
     ]
   }
 
-Dla `lowest_price` używamy priorytetowo `prices.latest` (ostatnia sprzedaż) 
+Dla `lowest_price` używamy priorytetowo `prices.latest` (ostatnia sprzedaż)
 lub `prices.lowest_price` (najniższa oferta), aby umożliwić wykrywanie arbitrażu.
 `prices.safe` (filtrowana mediana) służy jako fallback.
 Dla `quantity` używamy `prices.sold.last_7d` (liczba sprzedanych w ostatnich 7 dniach).
@@ -87,7 +87,7 @@ class SteamFetcher(BaseFetcher):
             # Dla arbitrażu interesuje nas TYLKO najniższa aktualna oferta ('min' w SteamAPIs).
             # Jeśli jej nie ma, nie możemy kupić przedmiotu teraz.
             price = prices.get("min")
-            
+
             if price is None:
                 skipped_no_price += 1
                 logger.debug("[steam] No active listing ('min') for %r — skipping", name)
@@ -97,7 +97,12 @@ class SteamFetcher(BaseFetcher):
             # i przedmiot jest wart więcej niż 10$, ignorujemy to jako błąd API.
             safe_price = prices.get("safe")
             if safe_price and float(price) < (float(safe_price) * 0.1) and float(safe_price) > 10:
-                logger.warning("[steam] Detected price anomaly for %r: Price=$%s, Safe=$%s. Skipping.", name, price, safe_price)
+                logger.warning(
+                    "[steam] Detected price anomaly for %r: Price=$%s, Safe=$%s. Skipping.",
+                    name,
+                    price,
+                    safe_price,
+                )
                 continue
 
             entry["_price_source"] = "min"

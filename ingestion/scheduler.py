@@ -110,7 +110,10 @@ async def _run_poll_cycle(fetchers: list[BaseFetcher], items: list[str]) -> list
 
 
 async def run() -> None:
-    """Główna pętla schedulera. Rozdziela cykle pobierania na podstawie indywidualnych interwałów każdego z rynków (Steam powoli, Skinport/CSFloat szybko)."""
+    """Główna pętla schedulera.
+
+    Rozdziela cykle pobierania na podstawie indywidualnych interwałów każdego z rynków.
+    """
     conn = await _wait_for_db()
     _seed_if_empty(conn)
 
@@ -179,4 +182,3 @@ async def run() -> None:
                 except Exception as reconnect_exc:
                     logger.error("Failed to reconnect to database: %s", reconnect_exc)
                 await asyncio.sleep(10)
-

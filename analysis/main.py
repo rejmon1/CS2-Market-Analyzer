@@ -50,10 +50,11 @@ def _find_arbitrage_opportunities(
         # Zbuduj mapę {market: (price, quantity, source)} dla tego itemu
         market_data: dict[str, tuple[float, int, str]] = {
             p["market"]: (
-                p["lowest_price"], 
+                p["lowest_price"],
                 p.get("quantity", 0),
-                (p.get("raw_data") or {}).get("_price_source", "unknown")
-            ) for p in price_list
+                (p.get("raw_data") or {}).get("_price_source", "unknown"),
+            )
+            for p in price_list
         }
 
         # Testuj wszystkie uporządkowane pary (kup na A, sprzedaj na B)

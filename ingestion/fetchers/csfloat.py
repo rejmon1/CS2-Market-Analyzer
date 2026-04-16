@@ -10,7 +10,6 @@ Zaleta: Jedno zapytanie dla wszystkich itemów, brak ryzyka rate-limit przy wiel
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 import aiohttp
@@ -41,7 +40,7 @@ class CSFloatFetcher(BaseFetcher):
                 headers={"Authorization": self._api_key},
             )
 
-            # Obsługa listy obiektów: [{"market_hash_name": "...", "min_price": 71, "quantity": 198}]
+            # Obsługa: [{"market_hash_name": "...", "min_price": 71, "quantity": 198}]
             if not isinstance(data, list):
                 logger.error("[csfloat] Unexpected response type: %s", type(data).__name__)
                 return []

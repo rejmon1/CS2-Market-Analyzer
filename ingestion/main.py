@@ -5,8 +5,6 @@ Uruchamia asynchroniczną pętlę schedulera pobierającą ceny z rynków CS2.
 
 import asyncio
 
-import config
-
 from shared.logger import get_logger
 
 logger = get_logger("ingestion")
