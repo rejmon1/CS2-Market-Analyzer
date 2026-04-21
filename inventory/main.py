@@ -8,6 +8,8 @@ Logika:
 """
 
 import asyncio
+import socket
+import time
 from typing import Any, Dict, List, Optional
 
 import aiohttp
@@ -18,6 +20,94 @@ from shared.logger import get_logger
 
 logger = get_logger("inventory")
 
+_next_retry_by_user: dict[str, float] = {}
+
+
+async def _fetch_inventory_json(
+    session: aiohttp.ClientSession,
+    url: str,
+    *,
+    steam_id64: str,
+    source: str,
+    headers: dict[str, str],
+    params: dict[str, Any],
+) -> dict[str, Any] | None:
+    logger.info(
+        "Pobieranie ekwipunku dla SteamID64: %s (source=%s, URL: %s)",
+        steam_id64,
+        source,
+        url,
+    )
+
+    try:
+        async with session.get(url, headers=headers, params=params) as resp:
+            if resp.status == 429:
+                logger.warning("[%s] Rate Limit (429) dla %s", source, steam_id64)
+                return None
+            if resp.status != 200:
+                response_preview = (await resp.text())[:200].replace("\n", " ")
+                logger.error(
+                    "[%s] Błąd API %d dla ID %s. Odpowiedź: %s",
+                    source,
+                    resp.status,
+                    steam_id64,
+                    response_preview,
+                )
+                return None
+
+            data = await resp.json(content_type=None)
+            return data if isinstance(data, dict) else None
+    except Exception as e:
+        logger.error(
+            "Błąd połączenia [%s] dla %s (%s): %r",
+            source,
+            steam_id64,
+            type(e).__name__,
+            e,
+        )
+        return None
+
+
+def _parse_inventory_items(data: dict[str, Any], steam_id64: str, source: str) -> list[dict[str, Any]]:
+    assets = data.get("assets") or []
+    descriptions_raw = data.get("descriptions") or []
+
+    if not assets:
+        logger.info("[%s] Inventory for %s is empty or private", source, steam_id64)
+        return []
+
+    descriptions = {
+        (str(d.get("classid")), str(d.get("instanceid"))): d.get("market_hash_name")
+        for d in descriptions_raw
+        if d.get("marketable") and d.get("market_hash_name")
+    }
+
+    parsed_items: list[dict[str, Any]] = []
+    for asset in assets:
+        key = (str(asset.get("classid")), str(asset.get("instanceid")))
+        name = descriptions.get(key)
+        if not isinstance(name, str):
+            continue
+
+        try:
+            amount = int(asset.get("amount", 1))
+        except (TypeError, ValueError):
+            amount = 1
+
+        asset_id = str(asset.get("assetid", "")).strip()
+        if not asset_id:
+            continue
+
+        parsed_items.append(
+            {
+                "market_hash_name": name,
+                "asset_id": asset_id,
+                "amount": amount,
+            }
+        )
+
+    return parsed_items
+
 
 async def fetch_steam_inventory(
     session: aiohttp.ClientSession, steam_id64: str
@@ -25,7 +115,7 @@ async def fetch_steam_inventory(
     """
     Pobiera i parsuje ekwipunek CS2 ze Steama.
     """
-    url = config.get_steam_inventory_url(steam_id64)
+    steamcommunity_url = config.get_steam_inventory_url(steam_id64)
 
     # Steam wymaga nagłówków i konkretnych parametrów
     headers = {
@@ -35,56 +125,24 @@ async def fetch_steam_inventory(
         ),
         "Accept": "application/json",
     }
-    params = {
+    steamcommunity_params = {
         "l": "english",
         "count": 1000,  # Bezpieczna wartość
     }
 
-    logger.info("Pobieranie ekwipunku dla SteamID64: %s (URL: %s)", steam_id64, url)
+    # Publiczne steamcommunity
+    steamcommunity_data = await _fetch_inventory_json(
+        session,
+        steamcommunity_url,
+        steam_id64=steam_id64,
+        source="steamcommunity",
+        headers=headers,
+        params=steamcommunity_params,
+    )
+    if steamcommunity_data is not None:
+        return _parse_inventory_items(steamcommunity_data, steam_id64, "steamcommunity")
 
-    try:
-        async with session.get(url, headers=headers, params=params, timeout=15) as resp:
-            if resp.status == 429:
-                logger.warning("Steam Rate Limit (429) dla %s", steam_id64)
-                return None
-            if resp.status != 200:
-                logger.error(
-                    "Błąd Steam API %d dla ID %s. Sprawdź czy profil jest publiczny.",
-                    resp.status,
-                    steam_id64,
-                )
-                return None
-
-            data = await resp.json()
-    except Exception as e:
-        logger.error("Błąd połączenia ze Steam dla %s: %s", steam_id64, e)
-        return None
-
-    if not data or not data.get("assets"):
-        # To zazwyczaj oznacza prywatny ekwipunek lub brak przedmiotów w CS2
-        logger.info("Inventory for %s is empty or private", steam_id64)
-        return []
-
-    descriptions = {
-        (d["classid"], d["instanceid"]): d["market_hash_name"]
-        for d in data.get("descriptions", [])
-        if d.get("marketable")
-    }
-
-    parsed_items = []
-    for asset in data["assets"]:
-        key = (asset["classid"], asset["instanceid"])
-        name = descriptions.get(key)
-        if name:
-            parsed_items.append(
-                {
-                    "market_hash_name": name,
-                    "asset_id": asset["assetid"],
-                    "amount": int(asset.get("amount", 1)),
-                }
-            )
-
-    return parsed_items
+    return None
 
 
 async def process_pending_updates(conn):
@@ -95,20 +153,40 @@ async def process_pending_updates(conn):
 
     logger.info("Found %d pending inventory updates", len(pending))
 
-    async with aiohttp.ClientSession() as session:
+    retry_backoff = config.get_error_retry_seconds()
+    now = time.monotonic()
+    connector = aiohttp.TCPConnector(family=socket.AF_INET, limit=10)
+    timeout = aiohttp.ClientTimeout(total=25, connect=8, sock_read=15)
+
+    async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
         for p in pending:
             discord_id = p["discord_id"]
             steam_id64 = p["steam_id64"]
+
+            next_retry = _next_retry_by_user.get(discord_id, 0.0)
+            if now < next_retry:
+                remaining = int(next_retry - now)
+                logger.info(
+                    "Skipping update for %s due to backoff (%ds remaining)",
+                    discord_id,
+                    remaining,
+                )
+                continue
 
             try:
                 items = await fetch_steam_inventory(session, steam_id64)
 
                 # Jeśli items to None, oznacza to błąd krytyczny/rate limit -> pomijamy odznaczanie
                 if items is None:
+                    _next_retry_by_user[discord_id] = time.monotonic() + retry_backoff
                     logger.warning(
-                        "Skipping update for %s due to API error (will retry)", discord_id
+                        "Skipping update for %s due to API error (will retry in %ds)",
+                        discord_id,
+                        retry_backoff,
                     )
                     continue
+
+                _next_retry_by_user.pop(discord_id, None)
 
                 # Zapisujemy stan (nawet jeśli lista przedmiotów jest pusta)
                 db.update_user_inventory(conn, discord_id, items)

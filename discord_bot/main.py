@@ -30,6 +30,8 @@ intents = discord.Intents.default()
 intents.message_content = True  # wymagane dla komend z prefiksem
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+DISCORD_ADMIN_USER_IDS = config.get_discord_admin_user_ids()
+REFRESH_PRICES_PERMISSION = "inv_refresh_prices"
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +131,48 @@ def _fmt_alert(alert: dict) -> str:
     return f"🔔 **{at}**: {name} - {d}"
 
 
+def _is_admin_user(discord_id: int) -> bool:
+    return discord_id in DISCORD_ADMIN_USER_IDS
+
+
+def _has_refresh_permission(conn, discord_id: int) -> bool:
+    if _is_admin_user(discord_id):
+        return True
+    return db.has_discord_command_permission(conn, REFRESH_PRICES_PERMISSION, str(discord_id))
+
+
+async def _send_response(ctx: commands.Context, message: str, *, ephemeral: bool = False) -> None:
+    """Wysyła odpowiedź poprawnie dla komend slash/hybrid i prefix."""
+    interaction = getattr(ctx, "interaction", None)
+    if interaction:
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=ephemeral)
+        else:
+            await interaction.response.send_message(message, ephemeral=ephemeral)
+    else:
+        await ctx.send(message)
+
+
+async def _defer_if_interaction(ctx: commands.Context, *, ephemeral: bool = False) -> None:
+    """Szybkie ACK interakcji slash, by uniknąć timeoutu 3s."""
+    interaction = getattr(ctx, "interaction", None)
+    if interaction and not interaction.response.is_done():
+        await interaction.response.defer(ephemeral=ephemeral)
+
+
+async def _require_dm_for_personal_command(ctx: commands.Context, command_name: str) -> bool:
+    """Komenda personalna dostępna tylko w DM, nie na kanałach serwera."""
+    if ctx.guild is None:
+        return True
+
+    await _send_response(
+        ctx,
+        f"🔒 Komenda `{command_name}` działa tylko w DM z botem.",
+        ephemeral=True,
+    )
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Komendy
 # ---------------------------------------------------------------------------
@@ -143,6 +187,9 @@ async def set_group(ctx: commands.Context):
 @set_group.command(name="inventory")
 async def set_inventory(ctx: commands.Context, *, steam_url_or_id: str):
     """Ustawia SteamID i zleca pobranie ekwipunku."""
+    if not await _require_dm_for_personal_command(ctx, "/set inventory"):
+        return
+
     from shared.steam import resolve_steam_id
 
     steam_id64 = resolve_steam_id(steam_url_or_id)
@@ -176,6 +223,9 @@ async def inv_group(ctx: commands.Context):
 @inv_group.command(name="info")
 async def inv_info(ctx: commands.Context):
     """Wyświetla listę przedmiotów w ekwipunku i ich aktualną wartość."""
+    if not await _require_dm_for_personal_command(ctx, "/inv info"):
+        return
+
     try:
         conn = db.get_connection()
         try:
@@ -238,6 +288,9 @@ async def inv_info(ctx: commands.Context):
 @inv_group.command(name="update")
 async def inv_update(ctx: commands.Context):
     """Ręczne wymuszenie odświeżenia ekwipunku."""
+    if not await _require_dm_for_personal_command(ctx, "/inv update"):
+        return
+
     try:
         conn = db.get_connection()
         profile = db.get_user_profile(conn, str(ctx.author.id))
@@ -250,6 +303,200 @@ async def inv_update(ctx: commands.Context):
         await set_inventory(ctx, steam_url_or_id=profile["steam_id64"])
     except Exception as e:
         await ctx.send(f"❌ Błąd: {e}")
+
+
+@inv_group.command(name="refresh_prices")
+async def inv_refresh_prices(ctx: commands.Context):
+    """Odświeża ceny dla inventory zapisanego użytkownika (Steam/Skinport/CSFloat)."""
+    await _defer_if_interaction(ctx, ephemeral=True)
+    discord_id = int(ctx.author.id)
+
+    try:
+        conn = db.get_connection()
+        try:
+            if not _has_refresh_permission(conn, discord_id):
+                await _send_response(
+                    ctx,
+                    "⛔ Nie masz uprawnień do `/inv refresh_prices`. Poproś admina o nadanie dostępu.",
+                    ephemeral=True,
+                )
+                return
+
+            profile = db.get_user_profile(conn, str(discord_id))
+            if not profile:
+                await _send_response(
+                    ctx,
+                    "❌ Najpierw ustaw SteamID komendą `/set inventory <link_lub_id>`.",
+                    ephemeral=True,
+                )
+                return
+
+            items = db.get_user_inventory(conn, str(discord_id))
+            if not items:
+                # Zleć odświeżenie inventory i zakończ bez wykonywania live-calli w tej komendzie.
+                db.upsert_user_profile(
+                    conn,
+                    str(discord_id),
+                    str(profile["steam_id64"]),
+                    pending_update=True,
+                )
+                await _send_response(
+                    ctx,
+                    (
+                        "⏳ Nie ma jeszcze inventory w bazie. "
+                        "Zlecono jego aktualizację — spróbuj ponownie za chwilę (`/inv refresh_prices`)."
+                    ),
+                    ephemeral=True,
+                )
+                return
+
+            item_names = sorted(
+                {
+                    str(item.get("market_hash_name", "")).strip()
+                    for item in items
+                    if str(item.get("market_hash_name", "")).strip()
+                }
+            )
+            if not item_names:
+                await _send_response(
+                    ctx,
+                    "📋 Inventory w bazie nie zawiera poprawnych nazw itemów do wyceny.",
+                    ephemeral=True,
+                )
+                return
+
+            # insert_prices robi JOIN po items, więc itemy muszą istnieć w tabeli.
+            db.seed_items(conn, item_names)
+            request_id = db.enqueue_price_refresh_request(
+                conn,
+                requested_by=str(discord_id),
+                item_names=item_names,
+            )
+        finally:
+            conn.close()
+
+        await _send_response(
+            ctx,
+            (
+                "✅ Zlecono odświeżenie cen dla Twojego ekwipunku "
+                "(Steam/Skinport/CSFloat) "
+                f"| request_id={request_id} | itemów={len(item_names)}"
+            ),
+            ephemeral=True,
+        )
+    except Exception as exc:
+        logger.exception("Błąd przy inv_refresh_prices: %s", exc)
+        await _send_response(ctx, "❌ Nie udało się zlecić odświeżenia cen.", ephemeral=True)
+
+
+@bot.hybrid_group(name="admin", invoke_without_command=True)
+async def admin_group(ctx: commands.Context):
+    """Grupa komend admina do zarządzania dostępem do refreshu cen."""
+    await _send_response(
+        ctx,
+        "❓ Użycie: `/admin allow_refresh <discord_id>`, `/admin revoke_refresh <discord_id>`, `/admin list_refresh_access`",
+        ephemeral=True,
+    )
+
+
+@admin_group.command(name="allow_refresh")
+async def admin_allow_refresh(ctx: commands.Context, discord_id: str):
+    """Nadaje użytkownikowi dostęp do komendy /inv refresh_prices."""
+    await _defer_if_interaction(ctx, ephemeral=True)
+    if not _is_admin_user(int(ctx.author.id)):
+        await _send_response(ctx, "⛔ Tylko admin z konfiguracji może użyć tej komendy.", ephemeral=True)
+        return
+
+    target = discord_id.strip()
+    if not target.isdigit():
+        await _send_response(ctx, "❌ `discord_id` musi być liczbą.", ephemeral=True)
+        return
+
+    try:
+        conn = db.get_connection()
+        try:
+            db.grant_discord_command_permission(
+                conn,
+                REFRESH_PRICES_PERMISSION,
+                target,
+                added_by=str(ctx.author.id),
+            )
+        finally:
+            conn.close()
+
+        await _send_response(
+            ctx,
+            f"✅ Nadano dostęp do `/inv refresh_prices` dla usera `{target}`.",
+            ephemeral=True,
+        )
+    except Exception as exc:
+        logger.exception("Błąd przy admin_allow_refresh: %s", exc)
+        await _send_response(ctx, "❌ Nie udało się nadać dostępu.", ephemeral=True)
+
+
+@admin_group.command(name="revoke_refresh")
+async def admin_revoke_refresh(ctx: commands.Context, discord_id: str):
+    """Odbiera użytkownikowi dostęp do komendy /inv refresh_prices."""
+    await _defer_if_interaction(ctx, ephemeral=True)
+    if not _is_admin_user(int(ctx.author.id)):
+        await _send_response(ctx, "⛔ Tylko admin z konfiguracji może użyć tej komendy.", ephemeral=True)
+        return
+
+    target = discord_id.strip()
+    if not target.isdigit():
+        await _send_response(ctx, "❌ `discord_id` musi być liczbą.", ephemeral=True)
+        return
+
+    try:
+        conn = db.get_connection()
+        try:
+            removed = db.revoke_discord_command_permission(
+                conn,
+                REFRESH_PRICES_PERMISSION,
+                target,
+            )
+        finally:
+            conn.close()
+
+        if removed:
+            await _send_response(ctx, f"🗑️ Odebrano dostęp userowi `{target}`.", ephemeral=True)
+        else:
+            await _send_response(
+                ctx,
+                "ℹ️ Ten użytkownik nie miał wpisu na whitelistcie.",
+                ephemeral=True,
+            )
+    except Exception as exc:
+        logger.exception("Błąd przy admin_revoke_refresh: %s", exc)
+        await _send_response(ctx, "❌ Nie udało się odebrać dostępu.", ephemeral=True)
+
+
+@admin_group.command(name="list_refresh_access")
+async def admin_list_refresh_access(ctx: commands.Context):
+    """Wyświetla globalną listę użytkowników z dostępem do /inv refresh_prices."""
+    await _defer_if_interaction(ctx, ephemeral=True)
+    if not _is_admin_user(int(ctx.author.id)):
+        await _send_response(ctx, "⛔ Tylko admin z konfiguracji może użyć tej komendy.", ephemeral=True)
+        return
+
+    try:
+        conn = db.get_connection()
+        try:
+            whitelisted = db.list_discord_command_permissions(conn, REFRESH_PRICES_PERMISSION)
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.exception("Błąd przy admin_list_refresh_access: %s", exc)
+        await _send_response(ctx, "❌ Nie udało się pobrać listy dostępu.", ephemeral=True)
+        return
+
+    admin_ids = sorted(DISCORD_ADMIN_USER_IDS)
+    wl_ids = sorted(whitelisted, key=int)
+
+    lines = ["🔐 **Dostęp do `/inv refresh_prices`:**"]
+    lines.append(f"• Admini z ENV: {', '.join(str(x) for x in admin_ids) if admin_ids else '(brak)'}")
+    lines.append(f"• Globalna whitelist: {', '.join(wl_ids) if wl_ids else '(brak)'}")
+    await _send_response(ctx, "\n".join(lines), ephemeral=True)
 
 
 @bot.hybrid_command(name="add_item")
@@ -470,7 +717,10 @@ async def on_command_error(ctx: commands.Context, error):
     if isinstance(error, commands.CommandNotFound):
         return
     logger.error("Błąd komendy %s: %s", ctx.command, error)
-    await ctx.send("❌ Wystąpił błąd podczas wykonywania komendy.")
+    try:
+        await _send_response(ctx, "❌ Wystąpił błąd podczas wykonywania komendy.", ephemeral=True)
+    except discord.NotFound:
+        logger.warning("Nie udało się odesłać błędu komendy (interaction wygasł).")
 
 
 # ---------------------------------------------------------------------------
@@ -484,6 +734,11 @@ def main() -> None:
     except RuntimeError as exc:
         logger.error("%s", exc)
         sys.exit(1)
+
+    if DISCORD_ADMIN_USER_IDS:
+        logger.info("Configured %d Discord admin ID(s)", len(DISCORD_ADMIN_USER_IDS))
+    else:
+        logger.warning("No Discord admin IDs configured (DISCORD_ADMIN_USER_IDS is empty)")
 
     logger.info("Discord bot service starting…")
     bot.run(token, log_handler=None)
