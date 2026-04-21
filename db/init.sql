@@ -135,3 +135,36 @@ CREATE TABLE IF NOT EXISTS user_inventories (
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_inventories_discord_id ON user_inventories(discord_id);
+
+
+-- -----------------------------------------------------------------------------
+-- TABELA: price_refresh_requests
+-- Kolejka ręcznych żądań odświeżenia cen uruchamianych z Discord bota.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS price_refresh_requests (
+    id            BIGSERIAL PRIMARY KEY,
+    requested_by  TEXT        NOT NULL,
+    item_names    JSONB       NOT NULL,
+    status        TEXT        NOT NULL DEFAULT 'pending'
+                                CHECK (status IN ('pending', 'processing', 'done', 'failed')),
+    error_text    TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    started_at    TIMESTAMPTZ,
+    finished_at   TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_price_refresh_requests_status_created
+ON price_refresh_requests(status, created_at);
+
+
+-- -----------------------------------------------------------------------------
+-- TABELA: discord_command_permissions
+-- Globalna lista Discord ID uprawnionych do wybranych komend.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS discord_command_permissions (
+    command_name TEXT        NOT NULL,
+    discord_id   TEXT        NOT NULL,
+    added_by     TEXT,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (command_name, discord_id)
+);

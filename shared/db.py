@@ -398,3 +398,204 @@ def get_historical_prices(
             (market_hash_name, interval),
         )
         return [dict(row) for row in cur.fetchall()]
+
+
+# ---------------------------------------------------------------------------
+# on-demand refresh requests
+# ---------------------------------------------------------------------------
+
+
+def ensure_price_refresh_requests_table(conn) -> None:
+    """Zapewnia istnienie tabeli kolejki ręcznych żądań odświeżenia cen."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS price_refresh_requests (
+                id            BIGSERIAL PRIMARY KEY,
+                requested_by  TEXT        NOT NULL,
+                item_names    JSONB       NOT NULL,
+                status        TEXT        NOT NULL DEFAULT 'pending'
+                                CHECK (status IN ('pending', 'processing', 'done', 'failed')),
+                error_text    TEXT,
+                created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                started_at    TIMESTAMPTZ,
+                finished_at   TIMESTAMPTZ
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_price_refresh_requests_status_created
+            ON price_refresh_requests(status, created_at)
+            """
+        )
+    conn.commit()
+
+
+def enqueue_price_refresh_request(conn, requested_by: str, item_names: list[str]) -> int:
+    """Dodaje żądanie odświeżenia cen i zwraca ID requestu."""
+    ensure_price_refresh_requests_table(conn)
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO price_refresh_requests (requested_by, item_names)
+            VALUES (%s, %s::jsonb)
+            RETURNING id
+            """,
+            (requested_by, json.dumps(item_names)),
+        )
+        request_id = cur.fetchone()[0]
+    conn.commit()
+    return request_id
+
+
+def claim_pending_price_refresh_request(conn) -> dict[str, Any] | None:
+    """Pobiera jedno oczekujące żądanie i oznacza je jako processing."""
+    ensure_price_refresh_requests_table(conn)
+
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT id, requested_by, item_names, created_at
+            FROM price_refresh_requests
+            WHERE status = 'pending'
+            ORDER BY created_at ASC
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+            """
+        )
+        row = cur.fetchone()
+        if not row:
+            conn.commit()
+            return None
+
+        cur.execute(
+            """
+            UPDATE price_refresh_requests
+            SET status = 'processing', started_at = NOW(), error_text = NULL
+            WHERE id = %s
+            """,
+            (row["id"],),
+        )
+    conn.commit()
+    return dict(row)
+
+
+def mark_price_refresh_request_done(conn, request_id: int) -> None:
+    """Oznacza request odświeżenia jako zakończony sukcesem."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE price_refresh_requests
+            SET status = 'done', finished_at = NOW(), error_text = NULL
+            WHERE id = %s
+            """,
+            (request_id,),
+        )
+    conn.commit()
+
+
+def mark_price_refresh_request_failed(conn, request_id: int, error_text: str) -> None:
+    """Oznacza request odświeżenia jako nieudany."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE price_refresh_requests
+            SET status = 'failed', finished_at = NOW(), error_text = %s
+            WHERE id = %s
+            """,
+            (error_text[:2000], request_id),
+        )
+    conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# discord command permissions
+# ---------------------------------------------------------------------------
+
+
+def ensure_discord_command_permissions_table(conn) -> None:
+    """Zapewnia istnienie tabeli z uprawnieniami do komend Discord."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS discord_command_permissions (
+                command_name TEXT        NOT NULL,
+                discord_id   TEXT        NOT NULL,
+                added_by     TEXT,
+                created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (command_name, discord_id)
+            )
+            """
+        )
+    conn.commit()
+
+
+def grant_discord_command_permission(
+    conn, command_name: str, discord_id: str, added_by: str | None = None
+) -> None:
+    """Nadaje uprawnienie do komendy dla wskazanego Discord ID."""
+    ensure_discord_command_permissions_table(conn)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO discord_command_permissions (command_name, discord_id, added_by)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (command_name, discord_id) DO UPDATE
+                SET added_by = EXCLUDED.added_by
+            """,
+            (command_name, discord_id, added_by),
+        )
+    conn.commit()
+
+
+def revoke_discord_command_permission(conn, command_name: str, discord_id: str) -> bool:
+    """Usuwa uprawnienie do komendy. Zwraca True, jeśli wpis istniał."""
+    ensure_discord_command_permissions_table(conn)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            DELETE FROM discord_command_permissions
+            WHERE command_name = %s AND discord_id = %s
+            """,
+            (command_name, discord_id),
+        )
+        deleted = cur.rowcount
+    conn.commit()
+    return deleted > 0
+
+
+def has_discord_command_permission(conn, command_name: str, discord_id: str) -> bool:
+    """Sprawdza, czy użytkownik ma uprawnienie do komendy."""
+    ensure_discord_command_permissions_table(conn)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT 1
+            FROM discord_command_permissions
+            WHERE command_name = %s AND discord_id = %s
+            LIMIT 1
+            """,
+            (command_name, discord_id),
+        )
+        return cur.fetchone() is not None
+
+
+def list_discord_command_permissions(conn, command_name: str) -> list[str]:
+    """Zwraca listę Discord ID z uprawnieniem do komendy."""
+    ensure_discord_command_permissions_table(conn)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT discord_id
+            FROM discord_command_permissions
+            WHERE command_name = %s
+            ORDER BY created_at ASC
+            """,
+            (command_name,),
+        )
+        return [row[0] for row in cur.fetchall()]

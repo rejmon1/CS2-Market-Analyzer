@@ -1,3 +1,4 @@
 # Zależności modułu discord_bot
 discord.py
 psycopg2-binary
+aiohttp

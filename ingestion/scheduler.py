@@ -27,10 +27,13 @@ from fetchers.skinport import SkinportFetcher
 from fetchers.steam import SteamFetcher
 
 from shared.db import (
+    claim_pending_price_refresh_request,
     get_active_items,
     get_connection,
     insert_prices,
     items_count,
+    mark_price_refresh_request_done,
+    mark_price_refresh_request_failed,
     seed_items,
 )
 from shared.logger import get_logger
@@ -109,6 +112,56 @@ async def _run_poll_cycle(fetchers: list[BaseFetcher], items: list[str]) -> list
     return all_records
 
 
+async def _process_on_demand_refresh_requests(conn, fetchers: list[BaseFetcher]) -> int:
+    """Obsługuje kolejkę ręcznych odświeżeń cen i wykonuje je natychmiast."""
+    processed = 0
+
+    while True:
+        request = claim_pending_price_refresh_request(conn)
+        if not request:
+            return processed
+
+        request_id = int(request["id"])
+        raw_items = request.get("item_names") or []
+        item_names = [str(item).strip() for item in raw_items if str(item).strip()]
+
+        if not item_names:
+            mark_price_refresh_request_done(conn, request_id)
+            processed += 1
+            continue
+
+        if not fetchers:
+            mark_price_refresh_request_failed(
+                conn,
+                request_id,
+                "No market fetchers configured (missing API keys).",
+            )
+            processed += 1
+            continue
+
+        try:
+            logger.info(
+                "On-demand refresh %s by %s for %d item(s)",
+                request_id,
+                request.get("requested_by"),
+                len(item_names),
+            )
+            records = await _run_poll_cycle(fetchers, item_names)
+            if records:
+                inserted = insert_prices(conn, records)
+                logger.info(
+                    "On-demand refresh %s inserted %d price record(s)", request_id, inserted
+                )
+            else:
+                logger.warning("On-demand refresh %s returned no price records", request_id)
+            mark_price_refresh_request_done(conn, request_id)
+        except Exception as exc:
+            logger.error("On-demand refresh %s failed: %s", request_id, exc)
+            mark_price_refresh_request_failed(conn, request_id, str(exc))
+
+        processed += 1
+
+
 async def run() -> None:
     """Główna pętla schedulera.
 
@@ -131,6 +184,10 @@ async def run() -> None:
         next_run = {f: time.monotonic() for f in fetchers}
 
         while True:
+            processed = await _process_on_demand_refresh_requests(conn, fetchers)
+            if processed:
+                logger.info("Processed %d on-demand refresh request(s)", processed)
+
             now = time.monotonic()
             due_fetchers = [f for f in fetchers if now >= next_run[f]]
 

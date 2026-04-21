@@ -41,6 +41,7 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-cs2user}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-cs2db}
       - DISCORD_TOKEN=${DISCORD_TOKEN:-}
       - DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID:-}
+      - DISCORD_ADMIN_USER_IDS=${DISCORD_ADMIN_USER_IDS:-}
       - ALERT_POLL_INTERVAL_SECONDS=${ALERT_POLL_INTERVAL_SECONDS:-30}
     depends_on:
       db:
@@ -56,6 +57,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-cs2user}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-cs2db}
       - INVENTORY_POLL_INTERVAL=${INVENTORY_POLL_INTERVAL:-3600}
+      - INVENTORY_ERROR_RETRY_SECONDS=${INVENTORY_ERROR_RETRY_SECONDS:-300}
     depends_on:
       db:
         condition: service_healthy
