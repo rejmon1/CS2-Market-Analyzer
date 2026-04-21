@@ -415,7 +415,7 @@ def ensure_price_refresh_requests_table(conn) -> None:
                 requested_by  TEXT        NOT NULL,
                 item_names    JSONB       NOT NULL,
                 status        TEXT        NOT NULL DEFAULT 'pending'
-                                          CHECK (status IN ('pending', 'processing', 'done', 'failed')),
+                                CHECK (status IN ('pending', 'processing', 'done', 'failed')),
                 error_text    TEXT,
                 created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 started_at    TIMESTAMPTZ,

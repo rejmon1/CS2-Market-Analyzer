@@ -317,7 +317,8 @@ async def inv_refresh_prices(ctx: commands.Context):
             if not _has_refresh_permission(conn, discord_id):
                 await _send_response(
                     ctx,
-                    "⛔ Nie masz uprawnień do `/inv refresh_prices`. Poproś admina o nadanie dostępu.",
+                    "⛔ Nie masz uprawnień do `/inv refresh_prices`. "
+                    "Poproś admina o nadanie dostępu.",
                     ephemeral=True,
                 )
                 return
@@ -344,7 +345,8 @@ async def inv_refresh_prices(ctx: commands.Context):
                     ctx,
                     (
                         "⏳ Nie ma jeszcze inventory w bazie. "
-                        "Zlecono jego aktualizację — spróbuj ponownie za chwilę (`/inv refresh_prices`)."
+                        "Zlecono jego aktualizację — spróbuj ponownie za chwilę "
+                        "(`/inv refresh_prices`)."
                     ),
                     ephemeral=True,
                 )
@@ -394,7 +396,8 @@ async def admin_group(ctx: commands.Context):
     """Grupa komend admina do zarządzania dostępem do refreshu cen."""
     await _send_response(
         ctx,
-        "❓ Użycie: `/admin allow_refresh <discord_id>`, `/admin revoke_refresh <discord_id>`, `/admin list_refresh_access`",
+        "❓ Użycie: `/admin allow_refresh <discord_id>`, "
+        "`/admin revoke_refresh <discord_id>`, `/admin list_refresh_access`",
         ephemeral=True,
     )
 
@@ -404,7 +407,9 @@ async def admin_allow_refresh(ctx: commands.Context, discord_id: str):
     """Nadaje użytkownikowi dostęp do komendy /inv refresh_prices."""
     await _defer_if_interaction(ctx, ephemeral=True)
     if not _is_admin_user(int(ctx.author.id)):
-        await _send_response(ctx, "⛔ Tylko admin z konfiguracji może użyć tej komendy.", ephemeral=True)
+        await _send_response(
+            ctx, "⛔ Tylko admin z konfiguracji może użyć tej komendy.", ephemeral=True
+        )
         return
 
     target = discord_id.strip()
@@ -439,7 +444,9 @@ async def admin_revoke_refresh(ctx: commands.Context, discord_id: str):
     """Odbiera użytkownikowi dostęp do komendy /inv refresh_prices."""
     await _defer_if_interaction(ctx, ephemeral=True)
     if not _is_admin_user(int(ctx.author.id)):
-        await _send_response(ctx, "⛔ Tylko admin z konfiguracji może użyć tej komendy.", ephemeral=True)
+        await _send_response(
+            ctx, "⛔ Tylko admin z konfiguracji może użyć tej komendy.", ephemeral=True
+        )
         return
 
     target = discord_id.strip()
@@ -476,7 +483,9 @@ async def admin_list_refresh_access(ctx: commands.Context):
     """Wyświetla globalną listę użytkowników z dostępem do /inv refresh_prices."""
     await _defer_if_interaction(ctx, ephemeral=True)
     if not _is_admin_user(int(ctx.author.id)):
-        await _send_response(ctx, "⛔ Tylko admin z konfiguracji może użyć tej komendy.", ephemeral=True)
+        await _send_response(
+            ctx, "⛔ Tylko admin z konfiguracji może użyć tej komendy.", ephemeral=True
+        )
         return
 
     try:
@@ -494,7 +503,9 @@ async def admin_list_refresh_access(ctx: commands.Context):
     wl_ids = sorted(whitelisted, key=int)
 
     lines = ["🔐 **Dostęp do `/inv refresh_prices`:**"]
-    lines.append(f"• Admini z ENV: {', '.join(str(x) for x in admin_ids) if admin_ids else '(brak)'}")
+    lines.append(
+        f"• Admini z ENV: {', '.join(str(x) for x in admin_ids) if admin_ids else '(brak)'}"
+    )
     lines.append(f"• Globalna whitelist: {', '.join(wl_ids) if wl_ids else '(brak)'}")
     await _send_response(ctx, "\n".join(lines), ephemeral=True)
 

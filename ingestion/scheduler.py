@@ -149,7 +149,9 @@ async def _process_on_demand_refresh_requests(conn, fetchers: list[BaseFetcher])
             records = await _run_poll_cycle(fetchers, item_names)
             if records:
                 inserted = insert_prices(conn, records)
-                logger.info("On-demand refresh %s inserted %d price record(s)", request_id, inserted)
+                logger.info(
+                    "On-demand refresh %s inserted %d price record(s)", request_id, inserted
+                )
             else:
                 logger.warning("On-demand refresh %s returned no price records", request_id)
             mark_price_refresh_request_done(conn, request_id)

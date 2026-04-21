@@ -68,7 +68,9 @@ async def _fetch_inventory_json(
         return None
 
 
-def _parse_inventory_items(data: dict[str, Any], steam_id64: str, source: str) -> list[dict[str, Any]]:
+def _parse_inventory_items(
+    data: dict[str, Any], steam_id64: str, source: str
+) -> list[dict[str, Any]]:
     assets = data.get("assets") or []
     descriptions_raw = data.get("descriptions") or []
 
