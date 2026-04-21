@@ -402,7 +402,7 @@ async def admin_group(ctx: commands.Context):
     )
 
 
-@admin_group.command(name="allow_refresh")
+@admin_group.command(name="allow_refresh")  # type: ignore
 async def admin_allow_refresh(ctx: commands.Context, discord_id: str):
     """Nadaje użytkownikowi dostęp do komendy /inv refresh_prices."""
     await _defer_if_interaction(ctx, ephemeral=True)
@@ -439,7 +439,7 @@ async def admin_allow_refresh(ctx: commands.Context, discord_id: str):
         await _send_response(ctx, "❌ Nie udało się nadać dostępu.", ephemeral=True)
 
 
-@admin_group.command(name="revoke_refresh")
+@admin_group.command(name="revoke_refresh")  # type: ignore
 async def admin_revoke_refresh(ctx: commands.Context, discord_id: str):
     """Odbiera użytkownikowi dostęp do komendy /inv refresh_prices."""
     await _defer_if_interaction(ctx, ephemeral=True)
@@ -757,3 +757,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
