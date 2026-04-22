@@ -22,13 +22,16 @@ import importlib.util
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from types import ModuleType
 
 _DISCORD_BOT_DIR = Path(__file__).parent.parent / "discord_bot"
 _INGESTION_DIR = Path(__file__).parent.parent / "ingestion"
 
 
-def _load_module(name: str, path: Path):
+def _load_module(name: str, path: Path) -> ModuleType:
     spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load module {name!r} from {path}")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
