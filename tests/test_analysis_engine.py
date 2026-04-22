@@ -8,6 +8,7 @@ używamy sys.modules do wstrzyknięcia mocka przed importem modułu analizy.
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 from pathlib import Path
 from typing import Any
@@ -19,9 +20,7 @@ import pytest
 # Konfiguracja ścieżki i mockowanie zależności PRZED importem analysis/main.py
 # ---------------------------------------------------------------------------
 
-_ANALYSIS_DIR = str(Path(__file__).parent.parent / "analysis")
-if _ANALYSIS_DIR not in sys.path:
-    sys.path.insert(0, _ANALYSIS_DIR)
+_ANALYSIS_DIR = Path(__file__).parent.parent / "analysis"
 
 # Wstrzyknij mock konfiguracji (analysis/config.py wymaga get_min_quantity)
 _config_mock = MagicMock()
@@ -29,8 +28,12 @@ _config_mock.get_min_quantity.return_value = 1  # domyślnie niski próg, by tes
 _config_mock.get_min_spread_pct.return_value = 5.0
 sys.modules["config"] = _config_mock
 
-# Importujemy dopiero TERAZ, gdy config jest już zamockowany
-from main import _find_arbitrage_opportunities  # noqa: E402 (analysis/main.py)
+# Ładujemy analysis/main.py pod unikalną nazwą, by nie zaśmiecać sys.modules["main"].
+_main_spec = importlib.util.spec_from_file_location("_analysis_main", _ANALYSIS_DIR / "main.py")
+assert _main_spec is not None and _main_spec.loader is not None
+_analysis_main_mod = importlib.util.module_from_spec(_main_spec)
+_main_spec.loader.exec_module(_analysis_main_mod)
+_find_arbitrage_opportunities = _analysis_main_mod._find_arbitrage_opportunities
 
 # Przywracamy oryginalny stan sys.modules["config"], żeby inne pliki testowe
 # (np. test_scheduler.py) mogły załadować swój własny config bez konfliktu.

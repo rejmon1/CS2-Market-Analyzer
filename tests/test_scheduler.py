@@ -25,6 +25,7 @@ _INGESTION_DIR = str(Path(__file__).parent.parent / "ingestion")
 _spec = importlib.util.spec_from_file_location(
     "config", _INGESTION_DIR + "/config.py"
 )
+assert _spec is not None and _spec.loader is not None
 _real_ingestion_config = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_real_ingestion_config)
 sys.modules["config"] = _real_ingestion_config

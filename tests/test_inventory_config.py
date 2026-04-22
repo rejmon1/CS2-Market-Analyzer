@@ -12,6 +12,7 @@ _spec = importlib.util.spec_from_file_location(
     "_inventory_config_module",
     Path(__file__).parent.parent / "inventory" / "config.py",
 )
+assert _spec is not None and _spec.loader is not None
 _cfg = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_cfg)
 
