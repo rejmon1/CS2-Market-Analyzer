@@ -14,6 +14,7 @@ _spec = importlib.util.spec_from_file_location(
     "_discord_bot_config_module",
     Path(__file__).parent.parent / "discord_bot" / "config.py",
 )
+assert _spec is not None and _spec.loader is not None
 _cfg = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_cfg)
 
