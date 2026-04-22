@@ -41,7 +41,6 @@ sys.modules.pop("config", None)
 
 from shared.models import MarketFee  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -103,8 +102,11 @@ def test_detects_profitable_arbitrage():
     opps = _find_arbitrage_opportunities(prices, fees, min_spread_pct=5.0)
 
     assert len(opps) >= 1
-    matching = [o for o in opps if o["details"]["market_buy"] == "steam"
-                and o["details"]["market_sell"] == "csfloat"]
+    matching = [
+        o
+        for o in opps
+        if o["details"]["market_buy"] == "steam" and o["details"]["market_sell"] == "csfloat"
+    ]
     assert len(matching) == 1
     opp = matching[0]
     assert opp["market_hash_name"] == "AK-47 | Redline (FT)"
@@ -146,9 +148,7 @@ def test_quantity_below_min_is_ignored():
     opps = _find_arbitrage_opportunities(prices, fees, min_spread_pct=1.0)
 
     # csfloat sell: quantity=2 < min_qty=10 → żadna okazja buy_steam/sell_csfloat
-    no_csfloat_sell = [
-        o for o in opps if o["details"]["market_sell"] == "csfloat"
-    ]
+    no_csfloat_sell = [o for o in opps if o["details"]["market_sell"] == "csfloat"]
     assert no_csfloat_sell == []
 
 
@@ -166,7 +166,8 @@ def test_missing_fee_for_market_skips_pair():
 
     # Żadna okazja z udziałem 'unknown_market'
     unknown_opps = [
-        o for o in opps
+        o
+        for o in opps
         if o["details"]["market_buy"] == "unknown_market"
         or o["details"]["market_sell"] == "unknown_market"
     ]
@@ -224,16 +225,26 @@ def test_arbitrage_details_structure():
     opps = _find_arbitrage_opportunities(prices, fees, min_spread_pct=1.0)
 
     steam_to_csfloat = [
-        o for o in opps
+        o
+        for o in opps
         if o["details"]["market_buy"] == "steam" and o["details"]["market_sell"] == "csfloat"
     ]
     assert len(steam_to_csfloat) == 1
     details = steam_to_csfloat[0]["details"]
 
     required_keys = {
-        "market_buy", "price_buy_raw", "source_buy", "buyer_fee", "cost",
-        "market_sell", "price_sell_raw", "source_sell", "seller_fee", "revenue",
-        "spread_pct", "quantity_sell",
+        "market_buy",
+        "price_buy_raw",
+        "source_buy",
+        "buyer_fee",
+        "cost",
+        "market_sell",
+        "price_sell_raw",
+        "source_sell",
+        "seller_fee",
+        "revenue",
+        "spread_pct",
+        "quantity_sell",
     }
     assert required_keys.issubset(details.keys())
 
@@ -250,8 +261,9 @@ def test_cost_zero_is_skipped():
 
     # Nie powinno rzucić wyjątku i nie powinno generować okazji z buy_price=0
     opps = _find_arbitrage_opportunities(prices, fees, min_spread_pct=0.0)
-    zero_cost_opps = [o for o in opps if o["details"]["market_buy"] == "steam"
-                      and o["details"]["cost"] == 0]
+    zero_cost_opps = [
+        o for o in opps if o["details"]["market_buy"] == "steam" and o["details"]["cost"] == 0
+    ]
     assert zero_cost_opps == []
 
 
@@ -269,8 +281,6 @@ def test_three_markets_all_pairs_evaluated():
     # min_spread_pct = 0 → wszystkie pary z dodatnim realnym spreadem
     opps = _find_arbitrage_opportunities(prices, fees, min_spread_pct=0.0)
 
-    buy_sell_pairs = {
-        (o["details"]["market_buy"], o["details"]["market_sell"]) for o in opps
-    }
+    buy_sell_pairs = {(o["details"]["market_buy"], o["details"]["market_sell"]) for o in opps}
     # Powinny być sprawdzone przynajmniej pary buy_steam -> sell_csfloat
     assert ("steam", "csfloat") in buy_sell_pairs

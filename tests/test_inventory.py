@@ -6,13 +6,11 @@ Testy dla serwisu inventory (inventory/main.py):
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import aiohttp
-import pytest
 
 from inventory.main import _fetch_inventory_json, _parse_inventory_items
-
 
 # ---------------------------------------------------------------------------
 # _parse_inventory_items

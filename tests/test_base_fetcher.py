@@ -15,10 +15,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 import pytest
-
 from fetchers.base import BaseFetcher
-from shared.models import PriceRecord
 
+from shared.models import PriceRecord
 
 # ---------------------------------------------------------------------------
 # Pomocnicza klasa — minimalna konkretna implementacja BaseFetcher

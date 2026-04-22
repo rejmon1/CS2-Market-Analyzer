@@ -18,12 +18,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 import pytest
-
 from fetchers.csfloat import CSFloatFetcher
 from fetchers.skinport import SkinportFetcher
 from fetchers.steam import SteamFetcher
-from shared.models import PriceRecord
-
 
 # ---------------------------------------------------------------------------
 # Pomocnicza klasa — mock odpowiedzi HTTP
@@ -145,9 +142,7 @@ async def test_steam_fetch_unexpected_response_structure(steam_fetcher):
 
 async def test_steam_fetch_api_error_returns_empty(steam_fetcher):
     """Błąd sieciowy w _get (RuntimeError po wyczerpaniu prób) → pusta lista."""
-    steam_fetcher.session.get.side_effect = [
-        _MockResponse(500)
-    ] * SteamFetcher.MAX_RETRIES
+    steam_fetcher.session.get.side_effect = [_MockResponse(500)] * SteamFetcher.MAX_RETRIES
 
     with patch("asyncio.sleep", new_callable=AsyncMock):
         records = await steam_fetcher.fetch(["AK-47 | Redline (Field-Tested)"])
@@ -384,9 +379,7 @@ async def test_csfloat_fetch_filters_untracked_items(csfloat_fetcher):
 
 async def test_csfloat_fetch_skips_item_without_price(csfloat_fetcher):
     """Przedmiot z min_price=None powinien być pominięty."""
-    api_response = [
-        {"market_hash_name": "Mystery Item", "min_price": None, "quantity": 5}
-    ]
+    api_response = [{"market_hash_name": "Mystery Item", "min_price": None, "quantity": 5}]
     csfloat_fetcher.session.get.return_value = _MockResponse(200, api_response)
 
     with patch("asyncio.sleep", new_callable=AsyncMock):
@@ -420,9 +413,7 @@ async def test_csfloat_fetch_tags_price_source(csfloat_fetcher):
 
 async def test_csfloat_fetch_zero_quantity_fallback(csfloat_fetcher):
     """Brak pola 'quantity' → quantity=0."""
-    api_response = [
-        {"market_hash_name": "AK-47 | Redline (Field-Tested)", "min_price": 1000}
-    ]
+    api_response = [{"market_hash_name": "AK-47 | Redline (Field-Tested)", "min_price": 1000}]
     csfloat_fetcher.session.get.return_value = _MockResponse(200, api_response)
 
     with patch("asyncio.sleep", new_callable=AsyncMock):

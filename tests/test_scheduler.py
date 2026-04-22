@@ -16,27 +16,22 @@ import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 # ---------------------------------------------------------------------------
 # Wymuszamy poprawny config (ingestion/config.py) PRZED importem schedulera.
 # ---------------------------------------------------------------------------
 _INGESTION_DIR = str(Path(__file__).parent.parent / "ingestion")
-_spec = importlib.util.spec_from_file_location(
-    "config", _INGESTION_DIR + "/config.py"
-)
+_spec = importlib.util.spec_from_file_location("config", _INGESTION_DIR + "/config.py")
 assert _spec is not None and _spec.loader is not None
 _real_ingestion_config = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_real_ingestion_config)
 sys.modules["config"] = _real_ingestion_config
 
-from scheduler import _build_fetchers, _run_poll_cycle, _seed_if_empty  # noqa: E402
-
 from fetchers.csfloat import CSFloatFetcher  # noqa: E402
 from fetchers.skinport import SkinportFetcher  # noqa: E402
 from fetchers.steam import SteamFetcher  # noqa: E402
-from shared.models import PriceRecord  # noqa: E402
+from scheduler import _build_fetchers, _run_poll_cycle, _seed_if_empty  # noqa: E402
 
+from shared.models import PriceRecord  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # _seed_if_empty
@@ -46,8 +41,10 @@ from shared.models import PriceRecord  # noqa: E402
 def test_seed_if_empty_skips_when_items_exist():
     """Gdy tabela items nie jest pusta, seedowanie jest pomijane."""
     conn = MagicMock()
-    with patch("scheduler.items_count", return_value=5) as mock_count, \
-         patch("scheduler.seed_items") as mock_seed:
+    with (
+        patch("scheduler.items_count", return_value=5) as mock_count,
+        patch("scheduler.seed_items") as mock_seed,
+    ):
         _seed_if_empty(conn)
 
     mock_count.assert_called_once_with(conn)
@@ -57,8 +54,7 @@ def test_seed_if_empty_skips_when_items_exist():
 def test_seed_if_empty_seeds_when_empty():
     """Gdy tabela jest pusta, seeduje z default_items.json."""
     conn = MagicMock()
-    with patch("scheduler.items_count", return_value=0), \
-         patch("scheduler.seed_items") as mock_seed:
+    with patch("scheduler.items_count", return_value=0), patch("scheduler.seed_items") as mock_seed:
         _seed_if_empty(conn)
 
     mock_seed.assert_called_once()
