@@ -32,6 +32,10 @@ sys.modules["config"] = _config_mock
 # Importujemy dopiero TERAZ, gdy config jest już zamockowany
 from main import _find_arbitrage_opportunities  # noqa: E402 (analysis/main.py)
 
+# Przywracamy oryginalny stan sys.modules["config"], żeby inne pliki testowe
+# (np. test_scheduler.py) mogły załadować swój własny config bez konfliktu.
+sys.modules.pop("config", None)
+
 from shared.models import MarketFee  # noqa: E402
 
 
