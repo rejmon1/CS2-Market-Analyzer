@@ -46,7 +46,7 @@ class Alert:
     """Alert arbitrażowy lub anomalia wolumenu gotowa do wysłania przez bota."""
 
     id: int
-    item_id: int
+    item_id: int | None  # None dla alertów globalnych (np. inventory_value)
     alert_type: str  # 'arbitrage' | 'pump_dump' | 'price_drop'
     details: dict[str, Any]
     sent: bool
