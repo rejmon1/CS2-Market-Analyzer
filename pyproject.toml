@@ -8,6 +8,10 @@ ignore = []
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# "."        — udostępnia pakiety shared/, analysis/, inventory/ z korzenia projektu.
+# "ingestion" — udostępnia scheduler.py, config.py i fetchers/* z katalogu ingestion/
+#               jako płaskie moduły (np. `import config`, `from fetchers.steam import ...`),
+#               bo ingestion nie jest instalowanym pakietem, tylko samodzielnym serwisem.
 pythonpath = [".", "ingestion"]
 asyncio_mode = "auto"
 

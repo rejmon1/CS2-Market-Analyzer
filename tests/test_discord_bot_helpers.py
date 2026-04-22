@@ -4,9 +4,16 @@ Testy dla czystych funkcji pomocniczych z discord_bot/main.py:
   _fmt_alert      — formatowanie wiadomości alertu
   _is_admin_user  — sprawdzenie czy ID to admin
 
-Moduł discord_bot/main.py wymaga zainstalowanego discord.py — w conftest.py
-skonfigurowano odpowiednie mocki. Importujemy main.py z odpowiednią podmianą
-sys.modules["config"] na discord_bot/config.py (nie ingestion/config.py).
+UWAGA dot. importu:
+  Używamy importlib.util.spec_from_file_location z unikalną nazwą modułu
+  ("_discord_bot_main"), żeby ominąć kolizję z sys.modules["main"], który
+  mógł zostać wcześniej wypełniony przez test_analysis_engine.py
+  (który ładuje analysis/main.py pod tą samą nazwą "main").
+
+  discord_bot/main.py robi `import config` — przed jego załadowaniem
+  wstrzykujemy do sys.modules["config"] właściwy moduł discord_bot/config.py.
+  Po załadowaniu przywracamy ingestion/config.py, żeby test_scheduler.py
+  mógł działać bez zakłóceń.
 """
 
 from __future__ import annotations
@@ -16,33 +23,30 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Załaduj discord_bot/config.py jako "config" przed importem main.py.
-# Cel: discord_bot/main.py robi `import config` — musi dostać SWÓJ config,
-# nie ingestion/config.py (który byłby domyślnym z powodu pythonpath).
-# ---------------------------------------------------------------------------
-_DISCORD_BOT_DIR = str(Path(__file__).parent.parent / "discord_bot")
-_db_cfg_spec = importlib.util.spec_from_file_location(
-    "config", _DISCORD_BOT_DIR + "/config.py"
-)
-_discord_bot_config = importlib.util.module_from_spec(_db_cfg_spec)
-_db_cfg_spec.loader.exec_module(_discord_bot_config)
+_DISCORD_BOT_DIR = Path(__file__).parent.parent / "discord_bot"
+_INGESTION_DIR = Path(__file__).parent.parent / "ingestion"
+
+
+def _load_module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+# 1. Załaduj discord_bot/config.py i ustaw jako sys.modules["config"]
+#    zanim discord_bot/main.py zostanie załadowany.
+_discord_bot_config = _load_module("config", _DISCORD_BOT_DIR / "config.py")
 sys.modules["config"] = _discord_bot_config
 
-# Dodaj discord_bot/ do sys.path — `import main` znajdzie discord_bot/main.py
-if _DISCORD_BOT_DIR not in sys.path:
-    sys.path.insert(0, _DISCORD_BOT_DIR)
+# 2. Załaduj discord_bot/main.py pod UNIKALNĄ nazwą "_discord_bot_main",
+#    omijając ewentualne sys.modules["main"] z test_analysis_engine.py.
+_bot_main = _load_module("_discord_bot_main", _DISCORD_BOT_DIR / "main.py")
 
-import main as _bot_main  # noqa: E402 — must come after sys.path manipulation
-
-# Przywróć ingestion/config jako "config", żeby nie zakłócać test_scheduler.py
-_INGESTION_DIR = str(Path(__file__).parent.parent / "ingestion")
-_ing_cfg_spec = importlib.util.spec_from_file_location(
-    "config", _INGESTION_DIR + "/config.py"
-)
-_ingestion_config_restored = importlib.util.module_from_spec(_ing_cfg_spec)
-_ing_cfg_spec.loader.exec_module(_ingestion_config_restored)
-sys.modules["config"] = _ingestion_config_restored
+# 3. Przywróć ingestion/config.py jako sys.modules["config"],
+#    żeby test_scheduler.py (który importuje scheduler z ingestion/) działał poprawnie.
+_ingestion_config = _load_module("config", _INGESTION_DIR / "config.py")
+sys.modules["config"] = _ingestion_config
 
 
 # ---------------------------------------------------------------------------
