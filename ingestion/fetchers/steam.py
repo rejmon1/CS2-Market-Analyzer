@@ -110,7 +110,11 @@ class SteamFetcher(BaseFetcher):
             )
 
         if skipped_no_price:
-            logger.info("[steam] Pominięto %d pasujących przedmiotów bez aktywnych ofert na Steam (brak 'latest')", skipped_no_price)
+            logger.info(
+                "[steam] Pominięto %d pasujących przedmiotów bez aktywnych ofert na Steam "
+                "(brak 'latest')",
+                skipped_no_price,
+            )
         if not records:
             logger.warning(
                 "[steam] Fetched 0/%d items — brak dopasowań z API "
