@@ -113,9 +113,21 @@ jobs:
     needs: build-and-push
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+
+      - name: Google Auth for Deploy
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          token_format: 'access_token'
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Copy deployment files to VM
         uses: appleboy/scp-action@master
@@ -130,19 +142,20 @@ jobs:
         uses: appleboy/ssh-action@master
         env:
           REGISTRY_URL: ${{ env.REGISTRY }}
+          GCP_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: REGISTRY_URL
+          envs: REGISTRY_URL,GCP_ACCESS_TOKEN
           script: |
             cd ~/cs2-market-analyzer
             
-            # Logowanie dockera do GCP
-            gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev --quiet
-            
             # Przekazanie zmiennej REGISTRY_URL do środowiska
             export REGISTRY_URL=$REGISTRY_URL
+            
+            # Logowanie dockera z użyciem krótkotrwałego tokena
+            echo "$GCP_ACCESS_TOKEN" | sudo docker login -u oauth2accesstoken --password-stdin ${{ secrets.GCP_REGION }}-docker.pkg.dev
             
             # Restart kontenerów z nowymi obrazami
             sudo -E docker compose -f docker-compose.prod.yml down
