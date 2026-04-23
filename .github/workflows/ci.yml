@@ -158,9 +158,9 @@ jobs:
             echo "$GCP_ACCESS_TOKEN" | sudo docker login -u oauth2accesstoken --password-stdin ${{ secrets.GCP_REGION }}-docker.pkg.dev
             
             # Restart kontenerów z nowymi obrazami
-            sudo -E docker compose -f docker-compose.prod.yml down
-            sudo -E docker compose -f docker-compose.prod.yml pull
-            sudo -E docker compose -f docker-compose.prod.yml up -d
+            sudo REGISTRY_URL=$REGISTRY_URL docker compose -f docker-compose.prod.yml down
+            sudo REGISTRY_URL=$REGISTRY_URL docker compose -f docker-compose.prod.yml pull
+            sudo REGISTRY_URL=$REGISTRY_URL docker compose -f docker-compose.prod.yml up -d
             
             # Oczyszczenie dysku ze starych obrazów
             sudo docker image prune -f
