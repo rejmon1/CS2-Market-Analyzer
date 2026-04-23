@@ -1,0 +1,82 @@
+services:
+  ingestion:
+    image: ${REGISTRY_URL}/ingestion:latest
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-cs2user}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-cs2db}
+      - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-6000}
+      - STEAMAPIS_API_KEY=${STEAMAPIS_API_KEY:-}
+      - SKINPORT_CLIENT_ID=${SKINPORT_CLIENT_ID:-}
+      - SKINPORT_CLIENT_SECRET=${SKINPORT_CLIENT_SECRET:-}
+      - CSFLOAT_API_KEY=${CSFLOAT_API_KEY:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - cs2net
+
+  analysis:
+    image: ${REGISTRY_URL}/analysis:latest
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-cs2user}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-cs2db}
+      - ANALYSIS_INTERVAL_SECONDS=${ANALYSIS_INTERVAL_SECONDS:-60}
+      - ARBITRAGE_MIN_SPREAD_PCT=${ARBITRAGE_MIN_SPREAD_PCT:-5.0}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - cs2net
+
+  discord_bot:
+    image: ${REGISTRY_URL}/discord_bot:latest
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-cs2user}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-cs2db}
+      - DISCORD_TOKEN=${DISCORD_TOKEN:-}
+      - DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID:-}
+      - DISCORD_ADMIN_USER_IDS=${DISCORD_ADMIN_USER_IDS:-}
+      - ALERT_POLL_INTERVAL_SECONDS=${ALERT_POLL_INTERVAL_SECONDS:-30}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - cs2net
+
+  inventory:
+    image: ${REGISTRY_URL}/inventory:latest
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-cs2user}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-cs2db}
+      - INVENTORY_POLL_INTERVAL=${INVENTORY_POLL_INTERVAL:-3600}
+      - INVENTORY_ERROR_RETRY_SECONDS=${INVENTORY_ERROR_RETRY_SECONDS:-300}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - cs2net
+
+  db:
+    image: postgres:16
+    container_name: cs2-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cs2user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-cs2db}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cs2user} -d ${POSTGRES_DB:-cs2db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - cs2net
+
+volumes:
+  db_data:
+
+networks:
+  cs2net:

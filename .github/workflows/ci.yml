@@ -1,4 +1,4 @@
-name: CI Pipeline
+name: CI/CD Pipeline
 
 on:
   push:
@@ -6,13 +6,16 @@ on:
   pull_request:
     branches: [ main ]
 
+env:
+  REGISTRY: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/cs2-images
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
     
     services:
       postgres:
-        image: postgres:15
+        image: postgres:16
         env:
           POSTGRES_DB: cs2_test
           POSTGRES_PASSWORD: password
@@ -58,3 +61,91 @@ jobs:
       with:
         name: code-coverage-report
         path: coverage.xml
+
+  build-and-push:
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Google Auth
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Docker auth
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push Ingestion
+        run: |
+          docker build -t ${{ env.REGISTRY }}/ingestion:latest -f ingestion/Dockerfile .
+          docker push ${{ env.REGISTRY }}/ingestion:latest
+
+      - name: Build and push Analysis
+        run: |
+          docker build -t ${{ env.REGISTRY }}/analysis:latest -f analysis/Dockerfile .
+          docker push ${{ env.REGISTRY }}/analysis:latest
+
+      - name: Build and push Discord Bot
+        run: |
+          docker build -t ${{ env.REGISTRY }}/discord_bot:latest -f discord_bot/Dockerfile .
+          docker push ${{ env.REGISTRY }}/discord_bot:latest
+
+      - name: Build and push Inventory
+        run: |
+          docker build -t ${{ env.REGISTRY }}/inventory:latest -f inventory/Dockerfile .
+          docker push ${{ env.REGISTRY }}/inventory:latest
+
+  deploy:
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Copy deployment files to VM
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "docker-compose.prod.yml,db/init.sql"
+          target: "~/cs2-market-analyzer/"
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@master
+        env:
+          REGISTRY_URL: ${{ env.REGISTRY }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: REGISTRY_URL
+          script: |
+            cd ~/cs2-market-analyzer
+            
+            # Logowanie dockera do GCP
+            gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev --quiet
+            
+            # Przekazanie zmiennej REGISTRY_URL do środowiska
+            export REGISTRY_URL=$REGISTRY_URL
+            
+            # Restart kontenerów z nowymi obrazami
+            sudo -E docker compose -f docker-compose.prod.yml down
+            sudo -E docker compose -f docker-compose.prod.yml pull
+            sudo -E docker compose -f docker-compose.prod.yml up -d
+            
+            # Oczyszczenie dysku ze starych obrazów
+            sudo docker image prune -f
