@@ -2,6 +2,7 @@ services:
   ingestion:
     image: ${REGISTRY_URL}/ingestion:latest
     restart: unless-stopped
+    env_file: .env
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-cs2user}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-cs2db}
       - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-6000}
@@ -18,6 +19,7 @@ services:
   analysis:
     image: ${REGISTRY_URL}/analysis:latest
     restart: unless-stopped
+    env_file: .env
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-cs2user}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-cs2db}
       - ANALYSIS_INTERVAL_SECONDS=${ANALYSIS_INTERVAL_SECONDS:-60}
@@ -31,6 +33,7 @@ services:
   discord_bot:
     image: ${REGISTRY_URL}/discord_bot:latest
     restart: unless-stopped
+    env_file: .env
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-cs2user}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-cs2db}
       - DISCORD_TOKEN=${DISCORD_TOKEN:-}
@@ -46,6 +49,7 @@ services:
   inventory:
     image: ${REGISTRY_URL}/inventory:latest
     restart: unless-stopped
+    env_file: .env
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-cs2user}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-cs2db}
       - INVENTORY_POLL_INTERVAL=${INVENTORY_POLL_INTERVAL:-3600}
